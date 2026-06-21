@@ -8,7 +8,5 @@
 	<string>46W827A36A</string>
 	<key>uploadSymbols</key>
 	<true/>
-	<key>destination</key>
-	<string>upload</string>
 </dict>
 </plist>

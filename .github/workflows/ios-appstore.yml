@@ -17,19 +17,19 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Configure App Store Connect API key
-        env:
-          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
-          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
-          ASC_PRIVATE_KEY: ${{ secrets.ASC_PRIVATE_KEY }}
-        run: |
-          set -euo pipefail
-          mkdir -p ~/.appstoreconnect/private_keys
-          echo "$ASC_PRIVATE_KEY" > ~/.appstoreconnect/private_keys/AuthKey_${ASC_KEY_ID}.p8
-          chmod 600 ~/.appstoreconnect/private_keys/AuthKey_${ASC_KEY_ID}.p8
+      - name: Install App Store Connect API key
+        uses: apple-actions/import-app-store-connect-api-key@v3
+        with:
+          key-id: ${{ secrets.ASC_KEY_ID }}
+          issuer-id: ${{ secrets.ASC_ISSUER_ID }}
+          private-key: ${{ secrets.ASC_PRIVATE_KEY }}
 
       - name: Show Xcode version
         run: xcodebuild -version
+
+      - name: List schemes
+        run: |
+          xcodebuild -list -project "$PROJECT_PATH"
 
       - name: Resolve Swift packages
         run: |
@@ -44,17 +44,15 @@ jobs:
             -project "$PROJECT_PATH" \
             -scheme "$SCHEME" \
             -configuration Release \
+            -sdk iphoneos \
             -destination 'generic/platform=iOS' \
             -archivePath "$RUNNER_TEMP/CheckingCBGuests.xcarchive" \
-            -authenticationKeyPath "$HOME/.appstoreconnect/private_keys/AuthKey_${{ secrets.ASC_KEY_ID }}.p8" \
-            -authenticationKeyID "${{ secrets.ASC_KEY_ID }}" \
-            -authenticationKeyIssuerID "${{ secrets.ASC_ISSUER_ID }}" \
             -allowProvisioningUpdates \
             DEVELOPMENT_TEAM="$DEVELOPMENT_TEAM" \
             CODE_SIGN_STYLE=Automatic \
             archive
 
-      - name: Export and upload to App Store Connect
+      - name: Export IPA
         run: |
           set -euo pipefail
           xcodebuild \
@@ -62,7 +60,16 @@ jobs:
             -archivePath "$RUNNER_TEMP/CheckingCBGuests.xcarchive" \
             -exportPath "$RUNNER_TEMP/export" \
             -exportOptionsPlist ios/ExportOptions.plist \
-            -authenticationKeyPath "$HOME/.appstoreconnect/private_keys/AuthKey_${{ secrets.ASC_KEY_ID }}.p8" \
-            -authenticationKeyID "${{ secrets.ASC_KEY_ID }}" \
-            -authenticationKeyIssuerID "${{ secrets.ASC_ISSUER_ID }}" \
             -allowProvisioningUpdates
+
+      - name: Upload to App Store Connect
+        run: |
+          set -euo pipefail
+          IPA="$(find "$RUNNER_TEMP/export" -name '*.ipa' -print -quit)"
+          if [ -z "$IPA" ]; then
+            echo "IPA not found in $RUNNER_TEMP/export"
+            ls -la "$RUNNER_TEMP/export" || true
+            exit 1
+          fi
+          echo "Uploading: $IPA"
+          xcrun altool --upload-app --type ios --file "$IPA"
