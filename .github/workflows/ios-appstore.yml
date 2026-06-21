@@ -8,6 +8,8 @@ env:
   SCHEME: CheckingCBGuestsİos
   BUNDLE_ID: com.checkingcbguests.CheckingCBGuestsI-os
   DEVELOPMENT_TEAM: 46W827A36A
+  ARCHIVE_PATH: .build/CheckingCBGuests.xcarchive
+  EXPORT_PATH: .build/export
 
 jobs:
   build-and-upload:
@@ -58,13 +60,13 @@ jobs:
           set -euo pipefail
           mkdir -p .build
           set +e
-          xcodebuild \
+          xcodebuild archive \
             -project "$PROJECT_PATH" \
             -scheme "$SCHEME" \
             -configuration Release \
             -sdk iphoneos \
             -destination 'generic/platform=iOS' \
-            -archivePath ".build/CheckingCBGuests.xcarchive" \
+            -archivePath "$ARCHIVE_PATH" \
             -authenticationKeyPath "$APP_STORE_CONNECT_API_KEY_PATH" \
             -authenticationKeyID "$APP_STORE_CONNECT_API_KEY_ID" \
             -authenticationKeyIssuerID "$APP_STORE_CONNECT_API_KEY_ISSUER_ID" \
@@ -80,13 +82,29 @@ jobs:
             tail -n 120 .build/archive.log || true
             exit "$ARCHIVE_EXIT"
           fi
-          echo "Archive succeeded"
+          if [ ! -d "$ARCHIVE_PATH" ]; then
+            echo "====== ARCHIVE FAILED: .xcarchive not created ======"
+            echo "Expected path: $ARCHIVE_PATH"
+            ls -la .build/ || true
+            tail -n 120 .build/archive.log || true
+            exit 1
+          fi
+          echo "archive-path=$ARCHIVE_PATH" >> "$GITHUB_OUTPUT"
+          echo "Archive succeeded: $ARCHIVE_PATH"
+          ls -la "$ARCHIVE_PATH"
 
       - name: Export IPA
         id: export
         run: |
           set -euo pipefail
-          mkdir -p .build/export
+          ARCHIVE_PATH="${{ steps.archive.outputs.archive-path }}"
+          if [ -z "$ARCHIVE_PATH" ] || [ ! -d "$ARCHIVE_PATH" ]; then
+            echo "====== EXPORT FAILED: archive missing before export ======"
+            echo "archive-path output: ${ARCHIVE_PATH:-<empty>}"
+            ls -la .build/ || true
+            exit 1
+          fi
+          mkdir -p "$EXPORT_PATH"
           python3 <<'PY'
           import plistlib
           from pathlib import Path
@@ -100,10 +118,9 @@ jobs:
           Path("ios/ExportOptions.ci.plist").write_bytes(plistlib.dumps(data))
           PY
           set +e
-          xcodebuild \
-            -exportArchive \
-            -archivePath ".build/CheckingCBGuests.xcarchive" \
-            -exportPath ".build/export" \
+          xcodebuild -exportArchive \
+            -archivePath "$ARCHIVE_PATH" \
+            -exportPath "$EXPORT_PATH" \
             -exportOptionsPlist ios/ExportOptions.ci.plist \
             -authenticationKeyPath "$APP_STORE_CONNECT_API_KEY_PATH" \
             -authenticationKeyID "$APP_STORE_CONNECT_API_KEY_ID" \
@@ -118,10 +135,10 @@ jobs:
             tail -n 120 .build/export.log || true
             exit "$EXPORT_EXIT"
           fi
-          IPA="$(find .build/export -name '*.ipa' -print -quit)"
+          IPA="$(find "$EXPORT_PATH" -name '*.ipa' -print -quit)"
           if [ -z "$IPA" ]; then
-            echo "IPA not found"
-            ls -la .build/export || true
+            echo "IPA not found under $EXPORT_PATH"
+            ls -la "$EXPORT_PATH" || true
             exit 1
           fi
           echo "ipa-path=$IPA" >> "$GITHUB_OUTPUT"
