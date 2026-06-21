@@ -28,82 +28,19 @@ jobs:
       - name: Show Xcode version
         run: xcodebuild -version
 
-      - name: Import code signing certificate
-        uses: Apple-Actions/import-codesign-certs@v7
-        with:
-          p12-file-base64: ${{ secrets.BUILD_CERTIFICATE_BASE64 }}
-          p12-password: ${{ secrets.P12_PASSWORD }}
-
-      - name: Download App Store provisioning profile
-        id: provisioning
-        uses: Apple-Actions/download-provisioning-profiles@v6
-        with:
-          bundle-id: ${{ env.BUNDLE_ID }}
-          profile-type: IOS_APP_STORE
-          issuer-id: ${{ secrets.ASC_ISSUER_ID }}
-          api-key-id: ${{ secrets.ASC_KEY_ID }}
-          api-private-key: ${{ secrets.ASC_PRIVATE_KEY }}
-
-      - name: Configure manual signing on app target only
-        id: signing
+      - name: Configure App Store Connect API key
         env:
-          PROFILES_JSON: ${{ steps.provisioning.outputs.profiles }}
-          PROJECT_PATH: ${{ env.PROJECT_PATH }}
-          DEVELOPMENT_TEAM: ${{ env.DEVELOPMENT_TEAM }}
-          BUNDLE_ID: ${{ env.BUNDLE_ID }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_PRIVATE_KEY: ${{ secrets.ASC_PRIVATE_KEY }}
         run: |
           set -euo pipefail
-          echo "Downloaded profiles: $PROFILES_JSON"
-          PROFILE_NAME="$(printf '%s' "$PROFILES_JSON" | python3 -c 'import json,sys; data=json.load(sys.stdin); \
-            assert data, "No App Store provisioning profile found for bundle id"; \
-            print(data[0]["name"])')"
-          PROFILE_UUID="$(printf '%s' "$PROFILES_JSON" | python3 -c 'import json,sys; data=json.load(sys.stdin); \
-            assert data, "No App Store provisioning profile found for bundle id"; \
-            print(data[0]["udid"])')"
-          echo "profile_name=$PROFILE_NAME" >> "$GITHUB_OUTPUT"
-          echo "profile_uuid=$PROFILE_UUID" >> "$GITHUB_OUTPUT"
-          export PROFILE_NAME PROFILE_UUID
-          gem install xcodeproj -N
-          ruby <<'RUBY'
-          require "xcodeproj"
-
-          project = Xcodeproj::Project.open(ENV.fetch("PROJECT_PATH"))
-          app_target = project.targets.find { |target| target.product_type == "com.apple.product-type.application" }
-          raise "Application target not found" unless app_target
-
-          app_target.build_configurations.each do |config|
-            next unless config.name == "Release"
-
-            config.build_settings["CODE_SIGN_STYLE"] = "Manual"
-            config.build_settings["CODE_SIGN_IDENTITY"] = "Apple Distribution"
-            config.build_settings["CODE_SIGN_IDENTITY[sdk=iphoneos*]"] = "Apple Distribution"
-            config.build_settings["PROVISIONING_PROFILE_SPECIFIER"] = ENV.fetch("PROFILE_NAME")
-            config.build_settings["DEVELOPMENT_TEAM"] = ENV.fetch("DEVELOPMENT_TEAM")
-            config.build_settings.delete("PROVISIONING_PROFILE")
-          end
-
-          project.save
-          RUBY
-          python3 <<'PY'
-          import os
-          import plistlib
-          from pathlib import Path
-
-          data = {
-              "method": "app-store-connect",
-              "teamID": os.environ["DEVELOPMENT_TEAM"],
-              "signingStyle": "manual",
-              "provisioningProfiles": {
-                  os.environ["BUNDLE_ID"]: os.environ["PROFILE_NAME"],
-              },
-              "uploadSymbols": True,
-          }
-          Path("ios/ExportOptions.ci.plist").write_bytes(plistlib.dumps(data))
-          PY
-          echo "Installed signing identities:"
-          security find-identity -v -p codesigning || true
-          echo "Installed provisioning profiles:"
-          ls -la "$HOME/Library/MobileDevice/Provisioning Profiles" || true
+          KEY_PATH="$RUNNER_TEMP/AuthKey_${ASC_KEY_ID}.p8"
+          printf '%s\n' "$ASC_PRIVATE_KEY" > "$KEY_PATH"
+          chmod 600 "$KEY_PATH"
+          echo "APP_STORE_CONNECT_API_KEY_PATH=$KEY_PATH" >> "$GITHUB_ENV"
+          echo "APP_STORE_CONNECT_API_KEY_ID=$ASC_KEY_ID" >> "$GITHUB_ENV"
+          echo "APP_STORE_CONNECT_API_KEY_ISSUER_ID=$ASC_ISSUER_ID" >> "$GITHUB_ENV"
 
       - name: Resolve Swift packages
         run: |
@@ -124,6 +61,13 @@ jobs:
             -sdk iphoneos \
             -destination 'generic/platform=iOS' \
             -archivePath "$ARCHIVE_PATH" \
+            -authenticationKeyPath "$APP_STORE_CONNECT_API_KEY_PATH" \
+            -authenticationKeyID "$APP_STORE_CONNECT_API_KEY_ID" \
+            -authenticationKeyIssuerID "$APP_STORE_CONNECT_API_KEY_ISSUER_ID" \
+            -allowProvisioningUpdates \
+            CODE_SIGN_IDENTITY=- \
+            AD_HOC_CODE_SIGNING_ALLOWED=YES \
+            CODE_SIGN_STYLE=Automatic \
             DEVELOPMENT_TEAM="$DEVELOPMENT_TEAM" \
             > .build/archive.log 2>&1
           ARCHIVE_EXIT=$?
@@ -136,56 +80,62 @@ jobs:
           fi
           if [ ! -d "$ARCHIVE_PATH" ]; then
             echo "====== ARCHIVE FAILED: .xcarchive not created ======"
-            echo "Expected path: $ARCHIVE_PATH"
             ls -la .build/ || true
             tail -n 120 .build/archive.log || true
             exit 1
           fi
           APP_PATH="$(find "$ARCHIVE_PATH/Products/Applications" -maxdepth 1 -name '*.app' -print -quit)"
           if [ -z "$APP_PATH" ]; then
-            echo "====== ARCHIVE FAILED: signed .app not found in archive ======"
+            echo "====== ARCHIVE FAILED: .app not found in archive ======"
             find "$ARCHIVE_PATH" -maxdepth 4 -type d || true
             exit 1
           fi
           echo "Archive signing details:"
-          codesign -dvvv "$APP_PATH" 2>&1 | head -30 || true
+          codesign -dvvv "$APP_PATH" 2>&1 | tee .build/codesign.log
+          if ! grep -Eq "Authority=Apple Distribution|Authority=Apple Development" .build/codesign.log; then
+            echo "====== ARCHIVE FAILED: app is not signed for distribution ======"
+            exit 1
+          fi
           echo "archive-path=$ARCHIVE_PATH" >> "$GITHUB_OUTPUT"
+          echo "app-path=$APP_PATH" >> "$GITHUB_OUTPUT"
           echo "Archive succeeded: $ARCHIVE_PATH"
 
-      - name: Export IPA
+      - name: Package IPA from archive
         id: export
         run: |
           set -euo pipefail
           ARCHIVE_PATH="${{ steps.archive.outputs.archive-path }}"
+          APP_PATH="${{ steps.archive.outputs.app-path }}"
           if [ -z "$ARCHIVE_PATH" ] || [ ! -d "$ARCHIVE_PATH" ]; then
-            echo "====== EXPORT FAILED: archive missing before export ======"
-            echo "archive-path output: ${ARCHIVE_PATH:-<empty>}"
-            ls -la .build/ || true
+            echo "====== PACKAGE FAILED: archive missing ======"
             exit 1
           fi
+          if [ -z "$APP_PATH" ] || [ ! -d "$APP_PATH" ]; then
+            APP_PATH="$(find "$ARCHIVE_PATH/Products/Applications" -maxdepth 1 -name '*.app' -print -quit)"
+          fi
+          if [ -z "$APP_PATH" ]; then
+            echo "====== PACKAGE FAILED: .app missing ======"
+            exit 1
+          fi
+          codesign --verify --deep --strict --verbose=2 "$APP_PATH" > .build/package.log 2>&1
           mkdir -p "$EXPORT_PATH"
-          set +e
-          xcodebuild -exportArchive \
-            -archivePath "$ARCHIVE_PATH" \
-            -exportPath "$EXPORT_PATH" \
-            -exportOptionsPlist ios/ExportOptions.ci.plist \
-            > .build/export.log 2>&1
-          EXPORT_EXIT=$?
-          set -e
-          if [ "$EXPORT_EXIT" -ne 0 ]; then
-            echo "====== EXPORT FAILED (exit $EXPORT_EXIT) ======"
-            grep -E "error:|warning:|Signing|provisioning profile|Cloud signing" .build/export.log || true
-            tail -n 120 .build/export.log || true
-            exit "$EXPORT_EXIT"
-          fi
-          IPA="$(find "$EXPORT_PATH" -name '*.ipa' -print -quit)"
-          if [ -z "$IPA" ]; then
-            echo "IPA not found under $EXPORT_PATH"
-            ls -la "$EXPORT_PATH" || true
+          APP_NAME="$(basename "$APP_PATH")"
+          IPA_PATH="$EXPORT_PATH/${APP_NAME%.app}.ipa"
+          WORKDIR="$(mktemp -d)"
+          trap 'rm -rf "$WORKDIR"' EXIT
+          mkdir -p "$WORKDIR/Payload"
+          ditto "$APP_PATH" "$WORKDIR/Payload/$APP_NAME"
+          (
+            cd "$WORKDIR"
+            zip -yr "$OLDPWD/$IPA_PATH" Payload > "$OLDPWD/.build/zip.log" 2>&1
+          )
+          if [ ! -f "$IPA_PATH" ]; then
+            echo "====== PACKAGE FAILED: IPA not created ======"
+            cat .build/zip.log || true
             exit 1
           fi
-          echo "ipa-path=$IPA" >> "$GITHUB_OUTPUT"
-          echo "Exported: $IPA"
+          echo "ipa-path=$IPA_PATH" >> "$GITHUB_OUTPUT"
+          echo "Packaged IPA: $IPA_PATH ($(du -h "$IPA_PATH" | awk '{print $1}'))"
 
       - name: Upload to App Store Connect
         uses: Apple-Actions/upload-testflight-build@v5
