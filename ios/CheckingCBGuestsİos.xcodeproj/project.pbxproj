@@ -13,7 +13,6 @@
 		1FBB2D432FD098EE009E55BD /* CheckingCBGuestsI_osTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FBB2D422FD098EE009E55BD /* CheckingCBGuestsI_osTests.swift */; };
 		1FBB2D4D2FD098EF009E55BD /* CheckingCBGuestsI_osUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FBB2D4C2FD098EF009E55BD /* CheckingCBGuestsI_osUITests.swift */; };
 		1FBB2D4F2FD098EF009E55BD /* CheckingCBGuestsI_osUITestsLaunchTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FBB2D4E2FD098EF009E55BD /* CheckingCBGuestsI_osUITestsLaunchTests.swift */; };
-		1FBB2D5C2FD09FFA009E55BD /* .cursorrules in Resources */ = {isa = PBXBuildFile; fileRef = 1FBB2D5B2FD09FFA009E55BD /* .cursorrules */; };
 		1FBB2D622FD0A100009E55BD /* Enums.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FBB2D612FD0A100009E55BD /* Enums.swift */; };
 		1FBB2D642FD0A100009E55BD /* String+Extensions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FBB2D632FD0A100009E55BD /* String+Extensions.swift */; };
 		1FBB2D662FD0A100009E55BD /* Event.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FBB2D652FD0A100009E55BD /* Event.swift */; };
@@ -108,7 +107,6 @@
 		1FBB2D482FD098EF009E55BD /* CheckingCBGuestsİosUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "CheckingCBGuestsİosUITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 		1FBB2D4C2FD098EF009E55BD /* CheckingCBGuestsI_osUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CheckingCBGuestsI_osUITests.swift; sourceTree = "<group>"; };
 		1FBB2D4E2FD098EF009E55BD /* CheckingCBGuestsI_osUITestsLaunchTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CheckingCBGuestsI_osUITestsLaunchTests.swift; sourceTree = "<group>"; };
-		1FBB2D5B2FD09FFA009E55BD /* .cursorrules */ = {isa = PBXFileReference; lastKnownFileType = text; path = .cursorrules; sourceTree = "<group>"; };
 		1FBB2D612FD0A100009E55BD /* Enums.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Enums.swift; sourceTree = "<group>"; };
 		1FBB2D632FD0A100009E55BD /* String+Extensions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "String+Extensions.swift"; sourceTree = "<group>"; };
 		1FBB2D652FD0A100009E55BD /* Event.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Event.swift; sourceTree = "<group>"; };
@@ -203,7 +201,6 @@
 		1FBB2D242FD098EC009E55BD = {
 			isa = PBXGroup;
 			children = (
-				1FBB2D5B2FD09FFA009E55BD /* .cursorrules */,
 				1FBB2D2F2FD098EC009E55BD /* CheckingCBGuestsİos */,
 				1FBB2D412FD098EE009E55BD /* CheckingCBGuestsİosTests */,
 				1FBB2D4B2FD098EF009E55BD /* CheckingCBGuestsİosUITests */,
@@ -542,7 +539,6 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				1FBB2D5C2FD09FFA009E55BD /* .cursorrules in Resources */,
 				1FBB2D352FD098EE009E55BD /* Assets.xcassets in Resources */,
 				1FBB2DA72FD0AD00009E55BD /* GoogleService-Info.plist in Resources */,
 			);
