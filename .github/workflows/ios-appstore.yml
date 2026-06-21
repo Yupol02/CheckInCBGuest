@@ -26,20 +26,6 @@ jobs:
       - name: Show Xcode version
         run: xcodebuild -version
 
-      - name: Configure App Store Connect API key
-        env:
-          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
-          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
-          ASC_PRIVATE_KEY: ${{ secrets.ASC_PRIVATE_KEY }}
-        run: |
-          set -euo pipefail
-          KEY_PATH="$RUNNER_TEMP/AuthKey_${ASC_KEY_ID}.p8"
-          printf '%s\n' "$ASC_PRIVATE_KEY" > "$KEY_PATH"
-          chmod 600 "$KEY_PATH"
-          echo "APP_STORE_CONNECT_API_KEY_PATH=$KEY_PATH" >> "$GITHUB_ENV"
-          echo "APP_STORE_CONNECT_API_KEY_ID=$ASC_KEY_ID" >> "$GITHUB_ENV"
-          echo "APP_STORE_CONNECT_API_KEY_ISSUER_ID=$ASC_ISSUER_ID" >> "$GITHUB_ENV"
-
       - name: Import code signing certificate
         uses: Apple-Actions/import-codesign-certs@v7
         with:
@@ -47,6 +33,7 @@ jobs:
           p12-password: ${{ secrets.P12_PASSWORD }}
 
       - name: Download App Store provisioning profile
+        id: provisioning
         uses: Apple-Actions/download-provisioning-profiles@v6
         with:
           bundle-id: ${{ env.BUNDLE_ID }}
@@ -55,22 +42,92 @@ jobs:
           api-key-id: ${{ secrets.ASC_KEY_ID }}
           api-private-key: ${{ secrets.ASC_PRIVATE_KEY }}
 
+      - name: Configure signing on app target only
+        id: signing
+        env:
+          PROFILES_JSON: ${{ steps.provisioning.outputs.profiles }}
+          PROJECT_PATH: ${{ env.PROJECT_PATH }}
+          DEVELOPMENT_TEAM: ${{ env.DEVELOPMENT_TEAM }}
+        run: |
+          set -euo pipefail
+          echo "Downloaded profiles: $PROFILES_JSON"
+          PROFILE_NAME="$(printf '%s' "$PROFILES_JSON" | python3 -c 'import json,sys; data=json.load(sys.stdin); \
+            assert data, "No App Store provisioning profile found for bundle id"; \
+            print(data[0]["name"])')"
+          echo "profile_name=$PROFILE_NAME" >> "$GITHUB_OUTPUT"
+          export PROFILE_NAME
+          gem install xcodeproj -N
+          ruby <<'RUBY'
+          require "xcodeproj"
+
+          project = Xcodeproj::Project.open(ENV.fetch("PROJECT_PATH"))
+          app_target = project.targets.find { |target| target.product_type == "com.apple.product-type.application" }
+          raise "Application target not found" unless app_target
+
+          release_config = app_target.build_configurations.find { |config| config.name == "Release" }
+          raise "Release configuration not found" unless release_config
+
+          release_config.build_settings["CODE_SIGN_STYLE"] = "Manual"
+          release_config.build_settings["CODE_SIGN_IDENTITY"] = "Apple Distribution"
+          release_config.build_settings["PROVISIONING_PROFILE_SPECIFIER"] = ENV.fetch("PROFILE_NAME")
+          release_config.build_settings["DEVELOPMENT_TEAM"] = ENV.fetch("DEVELOPMENT_TEAM")
+
+          project.save
+          RUBY
+
+      - name: Resolve Swift packages
+        run: |
+          xcodebuild -resolvePackageDependencies \
+            -project "$PROJECT_PATH" \
+            -scheme "$SCHEME"
+
       - name: Build, archive and export IPA
         id: build
-        uses: Apple-Actions/xcodebuild@v1
-        with:
-          project: ${{ env.PROJECT_PATH }}
-          scheme: ${{ env.SCHEME }}
-          sdk: iphoneos
-          destination: generic/platform=iOS
-          action: archive
-          archive-path: .build/CheckingCBGuests.xcarchive
-          export-options-plist: ios/ExportOptions.plist
-          build-settings: |
-            DEVELOPMENT_TEAM=${{ env.DEVELOPMENT_TEAM }}
-            CODE_SIGN_STYLE=Automatic
-          extra-arguments: -allowProvisioningUpdates
-          zip-result-bundle: true
+        run: |
+          set -euo pipefail
+          mkdir -p .build/export
+          xcodebuild \
+            -project "$PROJECT_PATH" \
+            -scheme "$SCHEME" \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -archivePath ".build/CheckingCBGuests.xcarchive" \
+            DEVELOPMENT_TEAM="$DEVELOPMENT_TEAM" \
+            archive | tee .build/archive.log
+          cat > ios/ExportOptions.ci.plist <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key>
+            <string>app-store-connect</string>
+            <key>teamID</key>
+            <string>${DEVELOPMENT_TEAM}</string>
+            <key>signingStyle</key>
+            <string>manual</string>
+            <key>provisioningProfiles</key>
+            <dict>
+              <key>${BUNDLE_ID}</key>
+              <string>${{ steps.signing.outputs.profile_name }}</string>
+            </dict>
+            <key>uploadSymbols</key>
+            <true/>
+          </dict>
+          </plist>
+          PLIST
+          xcodebuild \
+            -exportArchive \
+            -archivePath ".build/CheckingCBGuests.xcarchive" \
+            -exportPath ".build/export" \
+            -exportOptionsPlist ios/ExportOptions.ci.plist | tee .build/export.log
+          IPA="$(find .build/export -name '*.ipa' -print -quit)"
+          if [ -z "$IPA" ]; then
+            echo "IPA not found"
+            ls -la .build/export || true
+            exit 1
+          fi
+          echo "ipa-path=$IPA" >> "$GITHUB_OUTPUT"
 
       - name: Upload to App Store Connect
         uses: Apple-Actions/upload-testflight-build@v5
