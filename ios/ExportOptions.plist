@@ -6,6 +6,8 @@
 	<string>app-store-connect</string>
 	<key>teamID</key>
 	<string>46W827A36A</string>
+	<key>signingStyle</key>
+	<string>automatic</string>
 	<key>uploadSymbols</key>
 	<true/>
 </dict>

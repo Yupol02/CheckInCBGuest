@@ -26,6 +26,20 @@ jobs:
       - name: Show Xcode version
         run: xcodebuild -version
 
+      - name: Configure App Store Connect API key
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_PRIVATE_KEY: ${{ secrets.ASC_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          KEY_PATH="$RUNNER_TEMP/AuthKey_${ASC_KEY_ID}.p8"
+          printf '%s\n' "$ASC_PRIVATE_KEY" > "$KEY_PATH"
+          chmod 600 "$KEY_PATH"
+          echo "APP_STORE_CONNECT_API_KEY_PATH=$KEY_PATH" >> "$GITHUB_ENV"
+          echo "APP_STORE_CONNECT_API_KEY_ID=$ASC_KEY_ID" >> "$GITHUB_ENV"
+          echo "APP_STORE_CONNECT_API_KEY_ISSUER_ID=$ASC_ISSUER_ID" >> "$GITHUB_ENV"
+
       - name: Import code signing certificate
         uses: Apple-Actions/import-codesign-certs@v7
         with:
@@ -33,7 +47,6 @@ jobs:
           p12-password: ${{ secrets.P12_PASSWORD }}
 
       - name: Download App Store provisioning profile
-        id: provisioning
         uses: Apple-Actions/download-provisioning-profiles@v6
         with:
           bundle-id: ${{ env.BUNDLE_ID }}
@@ -41,39 +54,6 @@ jobs:
           issuer-id: ${{ secrets.ASC_ISSUER_ID }}
           api-key-id: ${{ secrets.ASC_KEY_ID }}
           api-private-key: ${{ secrets.ASC_PRIVATE_KEY }}
-
-      - name: Prepare signing configuration
-        id: signing
-        env:
-          PROFILES_JSON: ${{ steps.provisioning.outputs.profiles }}
-        run: |
-          set -euo pipefail
-          echo "Downloaded profiles: $PROFILES_JSON"
-          PROFILE_NAME="$(printf '%s' "$PROFILES_JSON" | python3 -c 'import json,sys; data=json.load(sys.stdin); \
-            assert data, "No App Store provisioning profile found for bundle id"; \
-            print(data[0]["name"])')"
-          echo "profile_name=$PROFILE_NAME" >> "$GITHUB_OUTPUT"
-          cat > ios/ExportOptions.ci.plist <<PLIST
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0">
-          <dict>
-            <key>method</key>
-            <string>app-store-connect</string>
-            <key>teamID</key>
-            <string>${{ env.DEVELOPMENT_TEAM }}</string>
-            <key>signingStyle</key>
-            <string>manual</string>
-            <key>provisioningProfiles</key>
-            <dict>
-              <key>${{ env.BUNDLE_ID }}</key>
-              <string>${PROFILE_NAME}</string>
-            </dict>
-            <key>uploadSymbols</key>
-            <true/>
-          </dict>
-          </plist>
-          PLIST
 
       - name: Build, archive and export IPA
         id: build
@@ -85,12 +65,11 @@ jobs:
           destination: generic/platform=iOS
           action: archive
           archive-path: .build/CheckingCBGuests.xcarchive
-          export-options-plist: ios/ExportOptions.ci.plist
+          export-options-plist: ios/ExportOptions.plist
           build-settings: |
             DEVELOPMENT_TEAM=${{ env.DEVELOPMENT_TEAM }}
-            CODE_SIGN_STYLE=Manual
-            CODE_SIGN_IDENTITY=Apple Distribution
-            PROVISIONING_PROFILE_SPECIFIER=${{ steps.signing.outputs.profile_name }}
+            CODE_SIGN_STYLE=Automatic
+          extra-arguments: -allowProvisioningUpdates
           zip-result-bundle: true
 
       - name: Upload to App Store Connect
