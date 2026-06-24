@@ -20,6 +20,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Prepare build directory
+        run: mkdir -p .build
+
       - name: Setup Xcode
         uses: maxim-lobanov/setup-xcode@v1
         with:
@@ -46,7 +49,7 @@ jobs:
           if [ "$missing" -ne 0 ]; then
             echo
             echo "Required secrets: ASC_KEY_ID, ASC_ISSUER_ID, ASC_PRIVATE_KEY"
-            echo "Create an App Store Connect API key with Admin access for cloud distribution signing."
+            echo "The API key must have Admin access for App Store distribution export."
             exit 1
           fi
 
@@ -68,13 +71,13 @@ jobs:
         run: |
           xcodebuild -resolvePackageDependencies \
             -project "$PROJECT_PATH" \
-            -scheme "$SCHEME"
+            -scheme "$SCHEME" \
+            > .build/resolve-packages.log 2>&1
 
       - name: Archive app
         id: archive
         run: |
           set -euo pipefail
-          mkdir -p .build
           set +e
           xcodebuild archive \
             -project "$PROJECT_PATH" \
@@ -110,62 +113,69 @@ jobs:
             find "$ARCHIVE_PATH" -maxdepth 4 -type d || true
             exit 1
           fi
-          echo "Archive signing details:"
-          codesign -dvvv "$APP_PATH" 2>&1 | tee .build/codesign.log
+          echo "Archive signing (informational — distribution signing happens at export):"
+          codesign -dvvv "$APP_PATH" 2>&1 | tee .build/codesign-archive.log
           if [ -f "$APP_PATH/embedded.mobileprovision" ]; then
-            echo "Embedded provisioning profile:"
-            security cms -D -i "$APP_PATH/embedded.mobileprovision" > .build/embedded-profile.plist
-            /usr/libexec/PlistBuddy -c 'Print :Name' .build/embedded-profile.plist || true
-            /usr/libexec/PlistBuddy -c 'Print :Entitlements:application-identifier' .build/embedded-profile.plist || true
-          else
-            echo "WARNING: embedded.mobileprovision not found"
-          fi
-          if ! grep -qi "Authority=Apple Distribution" .build/codesign.log; then
-            echo "====== ARCHIVE FAILED: app is not signed with Apple Distribution ======"
-            echo "Found signing authorities:"
-            grep -i "Authority=" .build/codesign.log || true
-            exit 1
+            security cms -D -i "$APP_PATH/embedded.mobileprovision" > .build/embedded-profile-archive.plist
+            echo "Embedded profile: $(/usr/libexec/PlistBuddy -c 'Print :Name' .build/embedded-profile-archive.plist)"
           fi
           echo "archive-path=$ARCHIVE_PATH" >> "$GITHUB_OUTPUT"
-          echo "app-path=$APP_PATH" >> "$GITHUB_OUTPUT"
           echo "Archive succeeded: $ARCHIVE_PATH"
 
-      - name: Package IPA from archive
+      - name: Export App Store IPA
         id: export
         run: |
           set -euo pipefail
           ARCHIVE_PATH="${{ steps.archive.outputs.archive-path }}"
-          APP_PATH="${{ steps.archive.outputs.app-path }}"
           if [ -z "$ARCHIVE_PATH" ] || [ ! -d "$ARCHIVE_PATH" ]; then
-            echo "====== PACKAGE FAILED: archive missing ======"
+            echo "====== EXPORT FAILED: archive missing ======"
             exit 1
           fi
-          if [ -z "$APP_PATH" ] || [ ! -d "$APP_PATH" ]; then
-            APP_PATH="$(find "$ARCHIVE_PATH/Products/Applications" -maxdepth 1 -name '*.app' -print -quit)"
-          fi
-          if [ -z "$APP_PATH" ]; then
-            echo "====== PACKAGE FAILED: .app missing ======"
-            exit 1
-          fi
-          codesign --verify --deep --strict --verbose=2 "$APP_PATH" > .build/package.log 2>&1
           mkdir -p "$EXPORT_PATH"
-          APP_NAME="$(basename "$APP_PATH")"
-          IPA_PATH="$EXPORT_PATH/${APP_NAME%.app}.ipa"
+          set +e
+          xcodebuild -exportArchive \
+            -archivePath "$ARCHIVE_PATH" \
+            -exportPath "$EXPORT_PATH" \
+            -exportOptionsPlist ios/ExportOptions.plist \
+            -authenticationKeyPath "$APP_STORE_CONNECT_API_KEY_PATH" \
+            -authenticationKeyID "$APP_STORE_CONNECT_API_KEY_ID" \
+            -authenticationKeyIssuerID "$APP_STORE_CONNECT_API_KEY_ISSUER_ID" \
+            -allowProvisioningUpdates \
+            > .build/export.log 2>&1
+          EXPORT_EXIT=$?
+          set -e
+          if [ "$EXPORT_EXIT" -ne 0 ]; then
+            echo "====== EXPORT FAILED (exit $EXPORT_EXIT) ======"
+            grep -E "error:|warning:|Signing|provisioning profile|Cloud signing" .build/export.log || true
+            tail -n 120 .build/export.log || true
+            echo
+            echo "If you see 'Cloud signing permission error', your App Store Connect API key"
+            echo "must have the Admin role for distribution export."
+            exit "$EXPORT_EXIT"
+          fi
+          IPA="$(find "$EXPORT_PATH" -name '*.ipa' -print -quit)"
+          if [ -z "$IPA" ]; then
+            echo "====== EXPORT FAILED: IPA not found ======"
+            ls -la "$EXPORT_PATH" || true
+            exit 1
+          fi
           WORKDIR="$(mktemp -d)"
           trap 'rm -rf "$WORKDIR"' EXIT
-          mkdir -p "$WORKDIR/Payload"
-          ditto "$APP_PATH" "$WORKDIR/Payload/$APP_NAME"
-          (
-            cd "$WORKDIR"
-            zip -yr "$OLDPWD/$IPA_PATH" Payload > "$OLDPWD/.build/zip.log" 2>&1
-          )
-          if [ ! -f "$IPA_PATH" ]; then
-            echo "====== PACKAGE FAILED: IPA not created ======"
-            cat .build/zip.log || true
+          unzip -q "$IPA" -d "$WORKDIR"
+          EXPORTED_APP="$(find "$WORKDIR" -path '*/Payload/*.app' -print -quit)"
+          if [ -z "$EXPORTED_APP" ]; then
+            echo "====== EXPORT FAILED: .app missing inside IPA ======"
             exit 1
           fi
-          echo "ipa-path=$IPA_PATH" >> "$GITHUB_OUTPUT"
-          echo "Packaged IPA: $IPA_PATH ($(du -h "$IPA_PATH" | awk '{print $1}'))"
+          echo "Exported IPA signing:"
+          codesign -dvvv "$EXPORTED_APP" 2>&1 | tee .build/codesign-export.log
+          if ! grep -qi "Authority=Apple Distribution" .build/codesign-export.log; then
+            echo "====== EXPORT FAILED: IPA is not signed with Apple Distribution ======"
+            grep -i "Authority=" .build/codesign-export.log || true
+            exit 1
+          fi
+          echo "ipa-path=$IPA" >> "$GITHUB_OUTPUT"
+          echo "Exported IPA: $IPA"
 
       - name: Upload to App Store Connect
         uses: Apple-Actions/upload-testflight-build@v5
@@ -180,5 +190,10 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: xcodebuild-logs
-          path: .build/
+          path: |
+            .build/archive.log
+            .build/export.log
+            .build/codesign-archive.log
+            .build/codesign-export.log
+            .build/resolve-packages.log
           if-no-files-found: warn
