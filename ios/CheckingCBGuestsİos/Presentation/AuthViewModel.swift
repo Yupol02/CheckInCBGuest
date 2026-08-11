@@ -52,10 +52,27 @@ final class AuthViewModel {
 
     // MARK: - Public API
 
+    var isPublicRegistrationEnabled: Bool {
+        AppAuth.publicRegistrationEnabled
+    }
+
     func login(email: String, password: String) async {
         loginUiState = .loading
 
         let result = await authRepository.signIn(email: email, password: password)
+        switch result {
+        case .success:
+            loginUiState = .success
+            await onLoginSuccess()
+        case .error(let message):
+            loginUiState = .error(message: message)
+        }
+    }
+
+    func signUp(email: String, password: String) async {
+        loginUiState = .loading
+
+        let result = await authRepository.signUp(email: email, password: password)
         switch result {
         case .success:
             loginUiState = .success

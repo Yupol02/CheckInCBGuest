@@ -2,6 +2,13 @@ import Foundation
 
 /// Kimlik doğrulama sabitleri (Android `AppConstants.Auth` eşleniği).
 enum AppAuth {
+    /// Geçici: App Store 3.2.0 onayı için herkese açık kayıt.
+    /// Onay + Unlisted dağıtıma geçince `false` yapıp yeni build gönderin.
+    static let publicRegistrationEnabled = true
+
+    /// Firebase Auth varsayılan minimum şifre uzunluğu.
+    static let minPasswordLength = 6
+
     private static let adminEmails: Set<String> = [
         "cbsecurity@checkin.com",
         "managercb@cbcheckin.com",

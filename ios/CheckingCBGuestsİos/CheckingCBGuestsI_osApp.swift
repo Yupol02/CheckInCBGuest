@@ -7,6 +7,7 @@ import FirebaseCore
 import SwiftUI
 
 @main
+
 struct CheckingCBGuestsI_osApp: App {
 
     @State private var authViewModel: AuthViewModel

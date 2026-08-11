@@ -5,6 +5,7 @@ import SwiftUI
 struct LoginView: View {
 
     @Environment(AuthViewModel.self) private var authViewModel
+    var onNavigateToSignUp: (() -> Void)? = nil
 
     @State private var email = ""
     @State private var password = ""
@@ -41,6 +42,9 @@ struct LoginView: View {
                     headerSection
                     formSection
                     loginButton
+                    if AppAuth.publicRegistrationEnabled, onNavigateToSignUp != nil {
+                        signUpEntryButton
+                    }
                 }
                 .padding(.horizontal, 24)
                 .padding(.vertical, 40)
@@ -75,7 +79,7 @@ struct LoginView: View {
                 .font(.largeTitle.weight(.bold))
                 .foregroundStyle(LoginPalette.primaryText)
 
-            Text("Güvenli giriş ile devam edin")
+            Text("Etkinlik misafir check-in uygulaması")
                 .font(.subheadline)
                 .foregroundStyle(LoginPalette.secondaryText)
                 .multilineTextAlignment(.center)
@@ -188,6 +192,28 @@ struct LoginView: View {
         .accessibilityHint("E-posta ve şifre ile oturum açar")
     }
 
+    private var signUpEntryButton: some View {
+        Button {
+            authViewModel.clearLoginError()
+            onNavigateToSignUp?()
+        } label: {
+            Text("Hesap Oluştur / Kayıt Ol")
+                .font(.headline)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 16)
+                .foregroundStyle(LoginPalette.accent)
+                .background(LoginPalette.cardBackground)
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .stroke(LoginPalette.accent, lineWidth: 2)
+                )
+        }
+        .buttonStyle(.plain)
+        .disabled(isLoading)
+        .accessibilityHint("Yeni hesap oluşturma sayfasını açar")
+    }
+
     private var loadingOverlay: some View {
         Color.black.opacity(0.12)
             .ignoresSafeArea()
@@ -282,7 +308,7 @@ struct LoginView: View {
 
 // MARK: - Text field component
 
-private struct LoginTextField: View {
+struct LoginTextField: View {
     let title: String
     let placeholder: String
     @Binding var text: String
@@ -325,7 +351,7 @@ private struct LoginTextField: View {
 
 // MARK: - Palette
 
-private enum LoginPalette {
+enum LoginPalette {
     static let accent = Color(red: 79 / 255, green: 70 / 255, blue: 229 / 255)
     static let error = Color(red: 244 / 255, green: 63 / 255, blue: 94 / 255)
     static let primaryText = Color.primary

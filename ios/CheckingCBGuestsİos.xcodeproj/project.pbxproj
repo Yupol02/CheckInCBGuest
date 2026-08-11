@@ -46,6 +46,7 @@
 		1FBB2DA42FD0AC00009E55BD /* MainDashboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FBB2DA02FD0AC00009E55BD /* MainDashboardView.swift */; };
 		1FBB2DA52FD0AC00009E55BD /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FBB2DA12FD0AC00009E55BD /* RootView.swift */; };
 		1FBB2DA72FD0AD00009E55BD /* GoogleService-Info.plist in Resources */ = {isa = PBXBuildFile; fileRef = 1FBB2DA62FD0AD00009E55BD /* GoogleService-Info.plist */; };
+		1FBB2DAB2FD0AC00009E55BD /* SignUpView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FBB2DAA2FD0AC00009E55BD /* SignUpView.swift */; };
 		1FBB2DAC2FD0AD00009E55BD /* FirebaseAuth in Frameworks */ = {isa = PBXBuildFile; productRef = 1FBB2DA92FD0AD00009E55BD /* FirebaseAuth */; };
 		1FBB2DAD2FD0AD00009E55BD /* FirebaseFirestore in Frameworks */ = {isa = PBXBuildFile; productRef = 1FBB2DAA2FD0AD00009E55BD /* FirebaseFirestore */; };
 		1FBB2DAE2FD0AD00009E55BD /* FirebaseMessaging in Frameworks */ = {isa = PBXBuildFile; productRef = 1FBB2DAB2FD0AD00009E55BD /* FirebaseMessaging */; };
@@ -140,6 +141,7 @@
 		1FBB2DA02FD0AC00009E55BD /* MainDashboardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainDashboardView.swift; sourceTree = "<group>"; };
 		1FBB2DA12FD0AC00009E55BD /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
 		1FBB2DA62FD0AD00009E55BD /* GoogleService-Info.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; path = "GoogleService-Info.plist"; sourceTree = "<group>"; };
+		1FBB2DAA2FD0AC00009E55BD /* SignUpView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SignUpView.swift; sourceTree = "<group>"; };
 		1FBC01012FD0B000009E55BD /* AppConstants.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppConstants.swift; sourceTree = "<group>"; };
 		1FBC01032FD0B000009E55BD /* DeviceIdentifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceIdentifier.swift; sourceTree = "<group>"; };
 		1FBC01052FD0B000009E55BD /* Validators.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Validators.swift; sourceTree = "<group>"; };
@@ -342,6 +344,7 @@
 				1FBB2D952FD0AA00009E55BD /* RedListViewModel.swift */,
 				1FBB2D9B2FD0AB00009E55BD /* SyncViewModel.swift */,
 				1FBB2D9F2FD0AC00009E55BD /* LoginView.swift */,
+				1FBB2DAA2FD0AC00009E55BD /* SignUpView.swift */,
 				1FBB2DA02FD0AC00009E55BD /* MainDashboardView.swift */,
 				1FBB2DA12FD0AC00009E55BD /* RootView.swift */,
 			);
@@ -624,6 +627,7 @@
 				1FBB2D9C2FD0AB00009E55BD /* SyncViewModel.swift in Sources */,
 				1FBB2DA22FD0AC00009E55BD /* AppDependencies.swift in Sources */,
 				1FBB2DA32FD0AC00009E55BD /* LoginView.swift in Sources */,
+				1FBB2DAB2FD0AC00009E55BD /* SignUpView.swift in Sources */,
 				1FBB2DA42FD0AC00009E55BD /* MainDashboardView.swift in Sources */,
 				1FBB2DA52FD0AC00009E55BD /* RootView.swift in Sources */,
 			);
@@ -800,7 +804,7 @@
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				IPHONEOS_DEPLOYMENT_TARGET = 17.2;
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
-				MARKETING_VERSION = 1.0;
+				MARKETING_VERSION = 1.2;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.checkingcbguests.CheckingCBGuestsI-os";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
@@ -835,7 +839,7 @@
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				IPHONEOS_DEPLOYMENT_TARGET = 17.2;
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
-				MARKETING_VERSION = 1.0;
+				MARKETING_VERSION = 1.2;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.checkingcbguests.CheckingCBGuestsI-os";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
