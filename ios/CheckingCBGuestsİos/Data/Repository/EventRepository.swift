@@ -61,6 +61,9 @@ protocol EventRepository: Sendable {
     func insertGuestLocally(_ guest: Guest) async
     func insertGuests(_ guests: [Guest]) async
     func updateGuest(_ guest: Guest) async
+    /// `updateGuest` ile aynı yazma işlemi; farkı, Firestore hatasını yutmayıp çağırana bildirmesi.
+    /// Başarı mesajını yalnızca gerçekten yazılan değişiklik için göstermek gerektiğinde kullanılır.
+    func updateGuestChecked(_ guest: Guest) async -> RepoResult<Void>
     func updateGuests(_ guests: [Guest]) async
     func deleteGuest(guestId: String, eventId: String?) async
     func deleteGuestsBatch(guestIds: [String]) async -> BatchDeleteResult

@@ -7,9 +7,10 @@ import UIKit
 struct SelectionToolbar: View {
     let selectedCount: Int
     let totalCount: Int
-    let onSelectAll: () -> Void 
+    let onSelectAll: () -> Void
     let onClearSelection: () -> Void
-    let onDelete: () -> Void
+    /// `nil` ise çöp kutusu **hiç çizilmez** (yetkisiz cihaz); `canDelete` yalnızca pasifleştirir.
+    let onDelete: (() -> Void)?
     let onDone: () -> Void
     var canDelete: Bool = true
     var onAddGroup: (() -> Void)?
@@ -43,12 +44,14 @@ struct SelectionToolbar: View {
                 .disabled(selectedCount == 0)
             }
 
-            Button(action: onDelete) {
-                Image(systemName: "trash")
-                    .foregroundStyle(canDelete ? AppTheme.Colors.danger : .white.opacity(0.3))
+            if let onDelete {
+                Button(action: onDelete) {
+                    Image(systemName: "trash")
+                        .foregroundStyle(canDelete ? AppTheme.Colors.danger : .white.opacity(0.3))
+                }
+                .buttonStyle(.plain)
+                .disabled(!canDelete)
             }
-            .buttonStyle(.plain)
-            .disabled(!canDelete)
 
             Button(action: onDone) {
                 Image(systemName: "checkmark")
@@ -280,6 +283,47 @@ struct StatusBadge: View {
             .foregroundStyle(status.color)
             .background(status.color.opacity(0.14))
             .clipShape(Capsule())
+    }
+}
+
+// MARK: - Durum değişikliği onayı
+
+/// Giriş / çıkış / sıfırlama onay metinleri.
+///
+/// Üç ekran (misafir detayı, etkinlik detayı satırı, kırmızı liste paneli) aynı metinleri
+/// kullandığı için tek kaynakta toplanır; kopyalanırsa zamanla birbirinden ayrışır.
+enum GuestStatusChangePrompt {
+
+    static func title(for guest: Guest) -> String {
+        switch guest.status {
+        case .pending:
+            return "\(guest.name) için giriş kaydı oluşturulsun mu?"
+        case .checkedIn:
+            return "\(guest.name) için çıkış kaydı oluşturulsun mu?"
+        case .exited:
+            return "\(guest.name) durumu sıfırlansın mı?"
+        case .pendingApproval:
+            return "\(guest.name) amir onayı bekliyor"
+        }
+    }
+
+    static func message(for guest: Guest) -> String? {
+        guest.status == .exited
+            ? "Misafirin giriş ve çıkış kaydı silinecek, durumu sıfırlanacak. Bu işlem geri alınamaz."
+            : nil
+    }
+
+    static func confirmLabel(for guest: Guest) -> String {
+        switch guest.status {
+        case .pending: return "Giriş Yaptır"
+        case .checkedIn: return "Çıkış Yaptır"
+        case .exited: return "Durumu Sıfırla"
+        case .pendingApproval: return "Onay Bekliyor"
+        }
+    }
+
+    static func isDestructive(_ guest: Guest) -> Bool {
+        guest.status == .exited
     }
 }
 

@@ -9,6 +9,8 @@ final class FirebaseEventRepository: EventRepository, @unchecked Sendable {
 
     private static let logger = Logger(subsystem: "com.checkingcbguests", category: "FirebaseEventRepository")
     private static let firestoreBatchLimit = 500
+    /// Sunucu onayı beklenirken kabul edilen azami süre (bkz. `withWriteTimeout`).
+    private static let writeTimeoutNanoseconds: UInt64 = 8_000_000_000
 
     private enum Collection {
         static let events = "events"
@@ -110,7 +112,7 @@ final class FirebaseEventRepository: EventRepository, @unchecked Sendable {
                     return document.documentID
                 }
 
-                coordinator.resetGuestListeners()
+                coordinator.resetGuestListeners(keeping: Set(eventIds))
 
                 for eventId in eventIds {
                     let publicRegistration = firestore
@@ -411,18 +413,7 @@ final class FirebaseEventRepository: EventRepository, @unchecked Sendable {
     }
 
     func uploadGuestToRemote(_ guest: Guest) async {
-        let isSecure = guest.isRedListPending || guest.status == .pendingApproval
-        let collection = isSecure
-            ? guestsSecureCollection(eventId: guest.eventId)
-            : guestsCollection(eventId: guest.eventId)
-
-        do {
-            try await collection
-                .document(guest.id)
-                .setData(toGuestMap(guest), merge: true)
-        } catch {
-            Self.logger.error("uploadGuestToRemote error: \(error.localizedDescription, privacy: .public)")
-        }
+        _ = await updateGuestChecked(guest)
     }
 
     // MARK: - Event writes
@@ -592,7 +583,48 @@ final class FirebaseEventRepository: EventRepository, @unchecked Sendable {
     }
 
     func updateGuest(_ guest: Guest) async {
-        await uploadGuestToRemote(guest)
+        _ = await updateGuestChecked(guest)
+    }
+
+    /// Misafiri Firestore'a yazar ve sonucu döndürür.
+    ///
+    /// `uploadGuestToRemote` hatayı yutup yalnızca logladığı için çağıran katman yazmanın
+    /// başarısız olduğunu anlayamıyordu; bu metot hatayı çağırana taşır.
+    func updateGuestChecked(_ guest: Guest) async -> RepoResult<Void> {
+        let isSecure = guest.isRedListPending || guest.status == .pendingApproval
+        let collection = isSecure
+            ? guestsSecureCollection(eventId: guest.eventId)
+            : guestsCollection(eventId: guest.eventId)
+        let document = collection.document(guest.id)
+        let payload = toGuestMap(guest)
+
+        do {
+            try await Self.withWriteTimeout {
+                try await document.setData(payload, merge: true)
+            }
+            return .success(())
+        } catch {
+            Self.logger.error("updateGuestChecked error: \(error.localizedDescription, privacy: .public)")
+            return .failure(RepositoryError(error))
+        }
+    }
+
+    /// Firestore `setData` yalnızca **sunucu onayında** döner; bağlantı yazma sırasında koparsa
+    /// çağrı süresiz askıda kalır. Arayüz başarı mesajını bu onaya bağladığı için beklemeyi sınırlarız.
+    /// Zaman aşımı yazmayı iptal etmez (Firestore kendi kuyruğunda yeniden dener), yalnızca
+    /// bizim beklememizi sonlandırır ve kullanıcıya dürüst bir hata gösterilmesini sağlar.
+    private static func withWriteTimeout(
+        _ operation: @escaping @Sendable () async throws -> Void
+    ) async throws {
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            group.addTask { try await operation() }
+            group.addTask {
+                try await Task.sleep(nanoseconds: writeTimeoutNanoseconds)
+                throw RepositoryError(localizedDescription: "Sunucu yanıt vermedi (zaman aşımı).")
+            }
+            defer { group.cancelAll() }
+            try await group.next()
+        }
     }
 
     func updateGuests(_ guests: [Guest]) async {
@@ -832,13 +864,17 @@ private final class GuestStreamCoordinator: @unchecked Sendable {
     }
 
     /// Yalnızca misafir alt dinleyicilerini kaldırır; ana etkinlik dinleyicisi aktif kalır.
-    func resetGuestListeners() {
+    ///
+    /// Önbellek **temizlenmez**, yalnızca artık var olmayan etkinlikler ayıklanır: önceden
+    /// her etkinlik değişiminde önbellek boşaltıldığı için akış anlık olarak boş dizi yayınlıyor
+    /// ve ekranlar bir an misafirsiz kalıyordu (iyimser güncellemeler de bu anda kayboluyordu).
+    func resetGuestListeners(keeping eventIds: Set<String>) {
         lock.lock()
         defer { lock.unlock() }
         guestListeners.forEach { $0.remove() }
         guestListeners.removeAll()
-        publicCache.removeAll()
-        secureCache.removeAll()
+        publicCache = publicCache.filter { eventIds.contains($0.key) }
+        secureCache = secureCache.filter { eventIds.contains($0.key) }
     }
 
     func removeAllListeners() {
@@ -864,13 +900,24 @@ private final class GuestStreamCoordinator: @unchecked Sendable {
         secureCache[eventId] = guests
     }
 
+    /// Public + secure koleksiyonlarını birleştirir.
+    ///
+    /// Aynı misafir iki koleksiyonda birden bulunabildiği için (ör. kırmızı listeden çıkarılan
+    /// misafirin `guests_secure` kopyası silinmiyor) sonuç `id` üzerinden tekilleştirilir;
+    /// aksi hâlde `ForEach` aynı kimliği iki kez görüyordu. Public kopya daha güncel olduğu
+    /// için çakışmada o kazanır.
     func mergedGuests() -> [Guest] {
         lock.lock()
         defer { lock.unlock() }
         let eventIds = Set(publicCache.keys).union(secureCache.keys)
-        return eventIds.flatMap { eventId in
-            (publicCache[eventId] ?? []) + (secureCache[eventId] ?? [])
+        var seen = Set<String>()
+        var result: [Guest] = []
+        for eventId in eventIds {
+            for guest in (publicCache[eventId] ?? []) + (secureCache[eventId] ?? []) where seen.insert(guest.id).inserted {
+                result.append(guest)
+            }
         }
+        return result
     }
 }
 

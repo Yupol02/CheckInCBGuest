@@ -25,11 +25,27 @@ struct EventListView: View {
         return base.sorted { statusOrder($0.computedStatus) < statusOrder($1.computedStatus) }
     }
 
+    private var isSearching: Bool {
+        !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    /// Tüm etkinliklerdeki eşleşen kişiler; aynı kişi N etkinlikteyse N satır çıkar.
+    private var guestResults: [GuestSearchResult] {
+        isSearching ? eventVM.searchGuestsAcrossEvents(query: searchText) : []
+    }
+
+    /// Silme yalnızca yönetici cihazlarda; yetkisizde seçim moduna hiç girilmez.
+    /// (Etkinlik seçim modunun tek işlevi silmektir.)
+    private var eventDeleteAction: (() -> Void)? {
+        guard eventVM.isAdminDevice else { return nil }
+        return { showDeleteConfirm = true }
+    }
+
     var body: some View {
         Group {
             if eventVM.isBootstrapping {
                 bootstrappingContent
-            } else if filteredEvents.isEmpty {
+            } else if filteredEvents.isEmpty && guestResults.isEmpty {
                 emptyContent
             } else {
                 eventListContent
@@ -56,8 +72,8 @@ struct EventListView: View {
         } message: {
             Text("\(eventVM.selectedEventIds.count) etkinliği silmek istediğinize emin misiniz?\n\nBu işlem geri alınamaz ve tüm misafirler de silinecektir.")
         }
-        .onChange(of: eventVM.uiEvent) { _, newValue in
-            if let message = newValue.toastMessage { toast = message }
+        .onChange(of: eventVM.uiEventNonce) { _, _ in
+            if let message = eventVM.uiEvent.toastMessage { toast = message }
         }
         .toast($toast)
     }
@@ -68,18 +84,17 @@ struct EventListView: View {
     /// Arama alanı `safeAreaInset` ile sabitlenir; büyük başlık + kaydırma birlikte çalışır.
     private var eventListContent: some View {
         List {
-            ForEach(filteredEvents) { event in
-                row(for: event)
-                    .listRowSeparator(.hidden)
-                    .listRowBackground(Color.clear)
-                    .listRowInsets(
-                        EdgeInsets(
-                            top: 6,
-                            leading: AppTheme.Spacing.lg,
-                            bottom: 6,
-                            trailing: AppTheme.Spacing.lg
-                        )
-                    )
+            if isSearching {
+                // Arama sırasında iki bölüm: etkinlik eşleşmeleri + tüm etkinliklerdeki kişiler.
+                if !filteredEvents.isEmpty {
+                    Section("Etkinlikler") { eventRows }
+                }
+                if !guestResults.isEmpty {
+                    Section("Kişiler") { guestResultRows }
+                }
+            } else {
+                // Arama yokken mevcut düzen birebir korunur (bölüm başlığı yok).
+                eventRows
             }
         }
         .listStyle(.plain)
@@ -88,6 +103,27 @@ struct EventListView: View {
             listTopInset
         }
         .refreshable { await eventVM.refreshEvents() }
+    }
+
+    @ViewBuilder
+    private var eventRows: some View {
+        ForEach(filteredEvents) { event in
+            row(for: event)
+                .modifier(PlainCardRow())
+        }
+    }
+
+    @ViewBuilder
+    private var guestResultRows: some View {
+        ForEach(guestResults) { result in
+            GuestSearchResultCard(guest: result.guest, eventTitle: result.event.title)
+                .modifier(PlainCardRow())
+                .rowTapAndLongPress {
+                    navigationPath?.push(
+                        .eventDetail(event: result.event, highlightGuestId: result.guest.id)
+                    )
+                }
+        }
     }
 
     private var listTopInset: some View {
@@ -100,7 +136,7 @@ struct EventListView: View {
                         eventVM.selectAllEvents(ids: filteredEvents.map(\.id))
                     },
                     onClearSelection: { eventVM.clearEventSelection() },
-                    onDelete: { showDeleteConfirm = true },
+                    onDelete: eventDeleteAction,
                     onDone: { eventVM.toggleEventSelectionMode() },
                     canDelete: !eventVM.selectedEventIds.isEmpty
                 )
@@ -118,7 +154,7 @@ struct EventListView: View {
                 title: "Etkinlik yok",
                 message: searchText.isEmpty
                     ? "Sağ üstten yeni etkinlik ekleyin."
-                    : "Aramanızla eşleşen etkinlik bulunamadı."
+                    : "Aramanızla eşleşen etkinlik veya kişi bulunamadı."
             )
             .padding(.top, AppTheme.Spacing.xxl)
         }
@@ -141,7 +177,7 @@ struct EventListView: View {
     }
 
     private var searchBar: some View {
-        SearchField(text: $searchText, placeholder: "Etkinlik ara…")
+        SearchField(text: $searchText, placeholder: "Etkinlik veya kişi ara…")
             .padding(.horizontal, AppTheme.Spacing.lg)
             .padding(.top, AppTheme.Spacing.sm)
             .padding(.bottom, AppTheme.Spacing.sm)
@@ -162,8 +198,8 @@ struct EventListView: View {
         } else {
             EventCard(event: event)
                 .rowTapAndLongPress(
-                    onTap: { navigationPath?.push(.eventDetail(event)) },
-                    onLongPress: {
+                    onTap: { navigationPath?.push(.eventDetail(event: event, highlightGuestId: nil)) },
+                    onLongPress: eventDeleteAction == nil ? nil : {
                         eventVM.toggleEventSelectionMode()
                         eventVM.toggleEventSelection(id: event.id)
                     }
@@ -208,6 +244,23 @@ struct EventListView: View {
         case .upcoming: return 1
         case .past: return 2
         }
+    }
+}
+
+/// Etkinlik ve kişi satırlarının ortak `List` sunumu (ayraçsız, şeffaf zemin, kart aralığı).
+private struct PlainCardRow: ViewModifier {
+    func body(content: Content) -> some View {
+        content
+            .listRowSeparator(.hidden)
+            .listRowBackground(Color.clear)
+            .listRowInsets(
+                EdgeInsets(
+                    top: 6,
+                    leading: AppTheme.Spacing.lg,
+                    bottom: 6,
+                    trailing: AppTheme.Spacing.lg
+                )
+            )
     }
 }
 

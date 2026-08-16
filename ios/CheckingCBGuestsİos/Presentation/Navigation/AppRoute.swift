@@ -3,7 +3,8 @@ import SwiftUI
 
 /// `NavigationStack` rotaları (Android `Screen` sealed sınıfı eşleniği).
 enum AppRoute: Hashable {
-    case eventDetail(Event)
+    /// `highlightGuestId`: kişi aramasından gelindiğinde vurgulanacak misafir (yoksa `nil`).
+    case eventDetail(event: Event, highlightGuestId: String?)
     case guestDetail(guest: Guest, event: Event)
     case excelImport(event: Event)
     case redListManagement

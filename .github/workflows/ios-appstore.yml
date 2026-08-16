@@ -180,6 +180,7 @@ jobs:
             -destination 'generic/platform=iOS' \
             -archivePath "$ARCHIVE_PATH" \
             DEVELOPMENT_TEAM="$DEVELOPMENT_TEAM" \
+            CURRENT_PROJECT_VERSION=${{ github.run_number }} \
             > .build/archive.log 2>&1
           ARCHIVE_EXIT=$?
           set -e
@@ -198,6 +199,9 @@ jobs:
             echo "====== ARCHIVE FAILED: .app not found ======"
             exit 1
           fi
+          APP_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP_PATH/Info.plist")"
+          APP_BUILD="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP_PATH/Info.plist")"
+          echo "::notice::Yuklenecek surum: $APP_VERSION (build $APP_BUILD)"
           echo "Archive signing:"
           codesign -dvvv "$APP_PATH" 2>&1 | tee .build/codesign-archive.log
           if [ -f "$APP_PATH/embedded.mobileprovision" ]; then
@@ -245,7 +249,8 @@ jobs:
           name: xcodebuild-logs
           path: |
             .build/archive.log
-            .build/export.log
+            .build/package.log
+            .build/zip.log
             .build/codesign-archive.log
             .build/identities.log
             .build/profiles.log

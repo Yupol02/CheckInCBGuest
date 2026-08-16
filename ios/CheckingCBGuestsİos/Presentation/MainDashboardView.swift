@@ -34,8 +34,8 @@ struct MainDashboardView: View {
     @ViewBuilder
     private func destination(for route: AppRoute) -> some View {
         switch route {
-        case .eventDetail(let event):
-            EventDetailView(event: event)
+        case .eventDetail(let event, let highlightGuestId):
+            EventDetailView(event: event, highlightGuestId: highlightGuestId)
         case .guestDetail(let guest, let event):
             GuestDetailView(guest: guest, event: event)
         case .excelImport(let event):

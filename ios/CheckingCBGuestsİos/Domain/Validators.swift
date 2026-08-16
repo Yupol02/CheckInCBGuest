@@ -37,7 +37,9 @@ enum Validators {
 
         if let date = parseISO8601(value) {
             let formatter = DateFormatter()
-            formatter.locale = Locale(identifier: "tr_TR")
+            // Sabit `dateFormat` kullanıldığında Apple `en_US_POSIX` şart koşar: gerçek bir yerel
+            // ayarla, cihazda "24 Saat" kapalıysa `HH` 12 saatlik biçime ("6:05 ÖS") dönüşüyordu.
+            formatter.locale = Locale(identifier: "en_US_POSIX")
             formatter.dateFormat = "HH:mm"
             return formatter.string(from: date)
         }
@@ -141,9 +143,10 @@ enum Validators {
         return .success
     }
 
-    // MARK: - Private
+    // MARK: - Yardımcılar
 
-    private static func parseISO8601(_ value: String) -> Date? {
+    /// ISO 8601 metnini `Date`'e çevirir (kesirli saniyeli ve saniyesiz biçimleri destekler).
+    static func parseISO8601(_ value: String) -> Date? {
         let withFractional = ISO8601DateFormatter()
         withFractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         if let date = withFractional.date(from: value) { return date }

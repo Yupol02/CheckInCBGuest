@@ -15,14 +15,25 @@ struct GuestDetailView: View {
     @State private var showEditSheet = false
     @State private var showDeleteConfirm = false
     @State private var showRemoveSectionConfirm = false
+    @State private var showStatusConfirm = false
     @State private var photoItem: PhotosPickerItem?
     @State private var toast: ToastMessage?
+    /// Son görülen canlı misafir değeri.
+    @State private var lastKnownGuest: Guest?
 
     private var isPast: Bool { event.isExpired || event.status == .past }
 
-    /// Listedeki güncel hâli (yoksa parametreyle gelen anlık görüntü).
+    /// Listedeki güncel hâli.
+    ///
+    /// Yedek olarak `AppRoute` içine gömülü ve **kalıcı olarak eskiyen** `guest` yerine son görülen
+    /// canlı değer kullanılır; aksi hâlde liste bir an misafiri içermediğinde ekran eski saate dönüyordu.
     private var current: Guest {
-        eventVM.mergedGuests.first { $0.id == guest.id } ?? guest
+        eventVM.guest(withId: guest.id) ?? lastKnownGuest ?? guest
+    }
+
+    /// `.exited` durumundan çıkış, giriş/çıkış kaydını silen sıfırlamadır: yalnızca yönetici.
+    private var canToggleStatus: Bool {
+        current.status != .exited || eventVM.isAdminDevice
     }
 
     private var isRedList: Bool {
@@ -50,10 +61,13 @@ struct GuestDetailView: View {
                         } label: {
                             Label("Düzenle", systemImage: "pencil")
                         }
-                        Button(role: .destructive) {
-                            showDeleteConfirm = true
-                        } label: {
-                            Label("Sil", systemImage: "trash")
+                        // Silme yalnızca yönetici cihazlarda görünür.
+                        if eventVM.isAdminDevice {
+                            Button(role: .destructive) {
+                                showDeleteConfirm = true
+                            } label: {
+                                Label("Sil", systemImage: "trash")
+                            }
                         }
                     } label: {
                         Image(systemName: "ellipsis.circle")
@@ -82,13 +96,41 @@ struct GuestDetailView: View {
             }
             Button("Vazgeç", role: .cancel) {}
         }
+        .confirmationDialog(
+            GuestStatusChangePrompt.title(for: current),
+            isPresented: $showStatusConfirm,
+            titleVisibility: .visible
+        ) {
+            Button(
+                GuestStatusChangePrompt.confirmLabel(for: current),
+                role: GuestStatusChangePrompt.isDestructive(current) ? .destructive : nil
+            ) {
+                Task { await eventVM.updateGuestStatus(guestId: current.id, eventId: event.id, currentEvent: event) }
+            }
+            Button("Vazgeç", role: .cancel) {}
+        } message: {
+            if let message = GuestStatusChangePrompt.message(for: current) {
+                Text(message)
+            }
+        }
+        .onAppear { syncLastKnownGuest() }
         .onChange(of: photoItem) { _, newValue in
             Task { await updatePhoto(newValue) }
         }
-        .onChange(of: eventVM.uiEvent) { _, newValue in
-            if let message = newValue.toastMessage { toast = message }
+        // Tüm misafir dizisini değil yalnızca bu misafiri izler.
+        .onChange(of: eventVM.guest(withId: guest.id)) { _, newValue in
+            if let newValue { lastKnownGuest = newValue }
+        }
+        .onChange(of: eventVM.uiEventNonce) { _, _ in
+            if let message = eventVM.uiEvent.toastMessage { toast = message }
         }
         .toast($toast)
+    }
+
+    private func syncLastKnownGuest() {
+        if let latest = eventVM.guest(withId: guest.id) {
+            lastKnownGuest = latest
+        }
     }
 
     // MARK: - Sections
@@ -205,11 +247,11 @@ struct GuestDetailView: View {
 
     private var actionButtons: some View {
         VStack(spacing: AppTheme.Spacing.md) {
-            if current.status != .pendingApproval {
+            if current.status != .pendingApproval, canToggleStatus {
                 Button {
-                    Task { await eventVM.updateGuestStatus(guestId: current.id, eventId: event.id, currentEvent: event) }
+                    showStatusConfirm = true
                 } label: {
-                    Label(toggleLabel, systemImage: "arrow.left.arrow.right.circle")
+                    Label(GuestStatusChangePrompt.confirmLabel(for: current), systemImage: "arrow.left.arrow.right.circle")
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
@@ -246,15 +288,6 @@ struct GuestDetailView: View {
         }
     }
 
-    private var toggleLabel: String {
-        switch current.status {
-        case .pending: return "Giriş Yaptır"
-        case .checkedIn: return "Çıkış Yaptır"
-        case .exited: return "Durumu Sıfırla"
-        case .pendingApproval: return "Onay Bekliyor"
-        }
-    }
-
     private func updatePhoto(_ item: PhotosPickerItem?) async {
         guard let item, let data = try? await item.loadTransferable(type: Data.self) else { return }
         let tempURL = FileManager.default.temporaryDirectory
@@ -266,6 +299,7 @@ struct GuestDetailView: View {
 
 // MARK: - Saat düzenleyici
 
+@MainActor
 private struct GuestTimesEditor: View {
     let guest: Guest
     let event: Event
@@ -277,29 +311,44 @@ private struct GuestTimesEditor: View {
     @State private var hasExit: Bool
     @State private var entryTime: Date
     @State private var exitTime: Date
+    @State private var isSaving = false
+    @State private var toast: ToastMessage?
 
     init(guest: Guest, event: Event) {
         self.guest = guest
         self.event = event
         _hasEntry = State(initialValue: guest.entryTime != nil)
         _hasExit = State(initialValue: guest.exitTime != nil)
-        _entryTime = State(initialValue: Self.parse(guest.entryTime) ?? Date())
-        _exitTime = State(initialValue: Self.parse(guest.exitTime) ?? Date())
+        _entryTime = State(initialValue: Validators.parseISO8601(guest.entryTime ?? "") ?? Date())
+        _exitTime = State(initialValue: Validators.parseISO8601(guest.exitTime ?? "") ?? Date())
     }
+
+    /// Kayıtlı bir saati tamamen silmek kısmi sıfırlamadır; yalnızca yönetici yapabilir.
+    private var canClearEntry: Bool { eventVM.isAdminDevice || guest.entryTime == nil }
+    private var canClearExit: Bool { eventVM.isAdminDevice || guest.exitTime == nil }
 
     var body: some View {
         NavigationStack {
             Form {
                 Section("Giriş") {
                     Toggle("Giriş saati", isOn: $hasEntry)
+                        .disabled(!canClearEntry)
                     if hasEntry {
                         DatePicker("Saat", selection: $entryTime, displayedComponents: .hourAndMinute)
                     }
                 }
                 Section("Çıkış") {
                     Toggle("Çıkış saati", isOn: $hasExit)
+                        .disabled(!canClearExit)
                     if hasExit {
                         DatePicker("Saat", selection: $exitTime, displayedComponents: .hourAndMinute)
+                    }
+                }
+                if !eventVM.isAdminDevice {
+                    Section {
+                        Text("Saatleri değiştirebilirsiniz; kayıtlı bir saati silme yetkisi yalnızca yöneticidedir.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
                 }
             }
@@ -308,37 +357,38 @@ private struct GuestTimesEditor: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("İptal") { dismiss() }
+                        .disabled(isSaving)
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Kaydet") {
-                        let entry = hasEntry ? Self.format(entryTime) : nil
-                        let exit = hasExit ? Self.format(exitTime) : nil
-                        Task {
-                            await eventVM.updateGuestTimes(
-                                guestId: guest.id,
-                                eventId: event.id,
-                                entryTime: entry,
-                                exitTime: exit
-                            )
-                            dismiss()
-                        }
-                    }
+                    Button("Kaydet") { save() }
+                        .disabled(isSaving)
                 }
             }
+            // Sayfa hata hâlinde açık kaldığı için bildirimi kendi içinde göstermeli:
+            // `sheet` sunucu görünümün `.toast` katmanını devralmaz.
+            .onChange(of: eventVM.uiEventNonce) { _, _ in
+                if let message = eventVM.uiEvent.toastMessage { toast = message }
+            }
+            .toast($toast)
         }
         .presentationDetents([.medium])
+        .interactiveDismissDisabled(isSaving)
     }
 
-    private static func parse(_ iso: String?) -> Date? {
-        guard let iso else { return nil }
-        return ISO8601DateFormatter().date(from: iso)
-    }
-
-    private static func format(_ date: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "tr_TR")
-        formatter.dateFormat = "HH:mm"
-        return formatter.string(from: date)
+    private func save() {
+        isSaving = true
+        Task {
+            let saved = await eventVM.updateGuestTimes(
+                guestId: guest.id,
+                eventId: event.id,
+                entryDate: hasEntry ? entryTime : nil,
+                exitDate: hasExit ? exitTime : nil,
+                currentEvent: event
+            )
+            isSaving = false
+            // Başarısızsa sayfa açık kalır ki kullanıcı hatayı görüp tekrar deneyebilsin.
+            if saved { dismiss() }
+        }
     }
 }
 

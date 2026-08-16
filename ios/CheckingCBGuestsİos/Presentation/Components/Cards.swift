@@ -216,11 +216,64 @@ struct GuestCard: View {
     }
 }
 
+// MARK: - Kişi arama sonucu
+
+/// Etkinlikler ekranındaki çapraz kişi arama satırı.
+///
+/// Aynı isim birden fazla etkinlikte çıkabildiği için **etkinlik adı** ayırt edici alan
+/// olarak gösterilir; sağdaki rozet misafirin giriş/çıkış durumunu verir.
+struct GuestSearchResultCard: View {
+    let guest: Guest
+    let eventTitle: String
+
+    var body: some View {
+        HStack(spacing: AppTheme.Spacing.md) {
+            ZStack {
+                Circle().fill(AppTheme.Colors.accentSoft)
+                Text(initials)
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(AppTheme.Colors.accent)
+            }
+            .frame(width: 36, height: 36)
+
+            VStack(alignment: .leading, spacing: AppTheme.Spacing.xs) {
+                Text(guest.name)
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(1)
+                if !guest.title.isEmpty {
+                    Text(guest.title)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+                Label(eventTitle, systemImage: "calendar")
+                    .font(.caption2)
+                    .foregroundStyle(AppTheme.Colors.accent)
+                    .lineLimit(1)
+            }
+
+            Spacer(minLength: AppTheme.Spacing.sm)
+
+            StatusBadge(status: guest.status)
+        }
+        .padding(AppTheme.Spacing.md)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(AppTheme.Colors.cardBackground)
+        .clipShape(RoundedRectangle(cornerRadius: AppTheme.Radius.md, style: .continuous))
+    }
+
+    private var initials: String {
+        let parts = guest.name.split(separator: " ").prefix(2)
+        return parts.compactMap { $0.first }.map(String.init).joined().uppercased()
+    }
+}
+
 #Preview {
     VStack(spacing: 12) {
         EventCard(event: .previewActive)
         GuestCard(guest: .previewCheckedIn)
         GuestCard(guest: .previewPendingApproval, isRedList: true)
+        GuestSearchResultCard(guest: .previewCheckedIn, eventTitle: Event.previewActive.title)
     }
     .padding()
     .background(AppTheme.Colors.groupedBackground)

@@ -15,6 +15,17 @@ enum UiEvent: Equatable, Sendable {
     case showRedListAddPermissionRequired(guest: Guest)
 }
 
+// MARK: - Kişi arama sonucu
+
+/// Etkinlikler ekranındaki çapraz kişi arama sonucu.
+/// Aynı kişi birden fazla etkinlikte yer alabildiği için kimlik `etkinlik + misafir` çiftidir.
+struct GuestSearchResult: Identifiable, Hashable, Sendable {
+    let guest: Guest
+    let event: Event
+
+    var id: String { "\(event.id)#\(guest.id)" }
+}
+
 // MARK: - Permission
 
 protocol RedListPermissionChecking: Sendable {
@@ -49,9 +60,12 @@ final class EventViewModel {
 
     private static let logger = Logger(subsystem: "com.checkingcbguests", category: "EventViewModel")
     private static let refreshDelayNanoseconds: UInt64 = 500_000_000
-    private static let optimisticClearDelayNanoseconds: UInt64 = 2_000_000_000
+    /// İyimser güncelleme, dinleyici yazmayı teyit edene kadar tutulur; bu süre yalnızca
+    /// teyit hiç gelmezse devreye giren güvenlik ağıdır (önceden 2 sn'lik kör zamanlayıcıydı).
+    private static let optimisticMaxLifetimeNanoseconds: UInt64 = 30_000_000_000
     private static let adminRedListCollection = "admin_red_list_names"
     private static let turkishLocale = Locale(identifier: "tr_TR")
+    private static let isoFormatter = ISO8601DateFormatter()
 
     private let eventRepository: any EventRepository
     private let redListRepository: any RedListRepository
@@ -79,12 +93,33 @@ final class EventViewModel {
     var isEventSelectionMode = false
     var selectedEventIds: Set<String> = []
 
-    private(set) var uiEvent: UiEvent = .idle
+    /// Son UI olayı.
+    ///
+    /// Hesaplanmış özellik olarak yazıldı: `@Observable` makrosunun `didSet` gözlemcisiyle nasıl
+    /// etkileştiğine güvenmek yerine sayaç artışı açıkça setter'da yapılır.
+    private(set) var uiEvent: UiEvent {
+        get { trackedUiEvent }
+        set {
+            trackedUiEvent = newValue
+            uiEventNonce &+= 1
+        }
+    }
+
+    private var trackedUiEvent: UiEvent = .idle
+
+    /// `UiEvent` `Equatable` olduğu için arka arkaya gelen aynı mesaj `onChange`'i tetiklemiyordu
+    /// (ikinci denemede kullanıcı hiçbir geri bildirim görmüyordu).
+    /// Görünümler bu sayacı dinler, mesajı `uiEvent`'ten okur.
+    private(set) var uiEventNonce = 0
     private(set) var redListGuestIds: Set<String> = []
     private(set) var hiddenRedListGuestIds: Set<String> = []
 
     private var optimisticGuestUpdates: [String: Guest] = [:]
     private var pendingGuestsStreams: [String: AsyncStream<[Guest]>] = [:]
+
+    /// Arama sırasında görünüm gövdesi değerlendirilirken yazıldığı için gözlemlenmemeli.
+    @ObservationIgnored
+    private var normalizedNameCache: [String: String] = [:]
 
     // MARK: Init
 
@@ -129,8 +164,17 @@ final class EventViewModel {
     }
 
     /// Misafir akışı + iyimser güncellemeler.
+    ///
+    /// `map` yerine birleşim: Firestore dinleyicisi bir an için misafiri içermeyen bir snapshot
+    /// yayınlarsa henüz teyitlenmemiş iyimser güncelleme kaybolmamalı (aksi hâlde ekran eski
+    /// değere geri sıçrıyordu).
     var mergedGuests: [Guest] {
-        guests.map { optimisticGuestUpdates[$0.id] ?? $0 }
+        var result = guests.map { optimisticGuestUpdates[$0.id] ?? $0 }
+        let knownIds = Set(guests.map(\.id))
+        for (id, optimistic) in optimisticGuestUpdates where !knownIds.contains(id) {
+            result.append(optimistic)
+        }
+        return result
     }
 
     /// Etkinlik listesi — katılımcı / toplam sayılar misafirlerden hesaplanır.
@@ -192,6 +236,54 @@ final class EventViewModel {
                 }
                 return lhs.name.localizedCompare(rhs.name) == .orderedAscending
             }
+    }
+
+    /// Tüm etkinliklerde kişi araması (Türkçe/diyakritik duyarsız).
+    ///
+    /// Veri zaten bellekte olduğu için ek Firestore sorgusu yapılmaz.
+    /// `searchQuery` **bilerek kullanılmaz**: o alan `EventDetailView` tarafından çift yönlü
+    /// bağlanmış durumda; bu arama `EventListView`'un kendi yerel metninden beslenir.
+    func searchGuestsAcrossEvents(query: String, limit: Int = 50) -> [GuestSearchResult] {
+        let normalizedQuery = query.normalizeGuestName()
+        guard normalizedQuery.count >= 2 else { return [] }
+
+        let eventsById = Dictionary(
+            events.lazy.filter { !$0.isDeleted }.map { ($0.id, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+
+        return mergedGuests
+            .filter { guest in
+                !guest.isDeleted
+                    && !guest.isRedListPending
+                    && guest.status != .pendingApproval
+                    && normalizedName(for: guest).contains(normalizedQuery)
+            }
+            .compactMap { guest in
+                eventsById[guest.eventId].map { GuestSearchResult(guest: guest, event: $0) }
+            }
+            .sorted { lhs, rhs in
+                if lhs.guest.name != rhs.guest.name {
+                    return lhs.guest.name.localizedCompare(rhs.guest.name) == .orderedAscending
+                }
+                return lhs.event.date > rhs.event.date
+            }
+            .prefix(limit)
+            .map { $0 }
+    }
+
+    /// `normalizeGuestName()` her çağrıda yeni bir `NSRegularExpression` kuruyor; her tuş vuruşunda
+    /// tüm misafirler için çalıştırmamak adına sonuç bellekte tutulur.
+    /// (`normalizeGuestName`'in kendisi kırmızı liste Firestore anahtar sözleşmesi olduğu için değiştirilmez.)
+    private func normalizedName(for guest: Guest) -> String {
+        let key = "\(guest.id)|\(guest.name)"
+        if let cached = normalizedNameCache[key] { return cached }
+        if normalizedNameCache.count > 5_000 {
+            normalizedNameCache.removeAll(keepingCapacity: true)
+        }
+        let value = guest.name.normalizeGuestName()
+        normalizedNameCache[key] = value
+        return value
     }
 
     func pendingRedListGuestsStream(for eventId: String) -> AsyncStream<[Guest]> {
@@ -267,6 +359,15 @@ final class EventViewModel {
             return
         }
 
+        // Durum sıfırlama (Çıktı → Bekliyor) giriş/çıkış kaydını siler; yalnızca yönetici yapabilir.
+        if guest.status == .exited, !isAdminDevice {
+            await checkAdminStatus()
+            if !isAdminDevice {
+                uiEvent = .showError("Durumu sıfırlama yetkisi yalnızca yöneticidedir.")
+                return
+            }
+        }
+
         if isRedList, requirePermission, !redListPermissionChecker.canCheckInRedListGuest() {
             uiEvent = .showRedListPermissionRequired(guestId: guestId)
             return
@@ -280,8 +381,10 @@ final class EventViewModel {
             if activeFilterTab != nil {
                 activeFilterTab = updatedGuest.status
             }
-            uiEvent = .showSuccess(statusChangeMessage(for: updatedGuest))
-            await persistGuestUpdate(updatedGuest)
+            // Başarı mesajı yazma sunucuda onaylandıktan sonra; satır iyimser değerle zaten anında döner.
+            if await persistGuestUpdate(updatedGuest) {
+                uiEvent = .showSuccess(statusChangeMessage(for: updatedGuest))
+            }
         }
     }
 
@@ -368,11 +471,14 @@ final class EventViewModel {
             uiEvent = .showError("Geçmiş etkinlikte değişiklik yapılamaz.")
             return
         }
+        // "Reddet" misafiri kalıcı olarak siler.
+        guard await ensureAdminForDeletion() else { return }
 
         isLoading = true
         defer { isLoading = false }
 
         await eventRepository.deleteGuest(guestId: guestId, eventId: currentEvent?.id)
+        optimisticGuestUpdates.removeValue(forKey: guestId)
         _ = await redListRepository.removeFromRedList(guestId: guestId)
         await syncAfterOperation()
         uiEvent = .showSuccess("Misafir reddedildi.")
@@ -432,6 +538,7 @@ final class EventViewModel {
     }
 
     func deleteEvent(eventId: String) async {
+        guard await ensureAdminForDeletion() else { return }
         isLoading = true
         defer { isLoading = false }
         await eventRepository.deleteEvent(eventId: eventId)
@@ -444,12 +551,15 @@ final class EventViewModel {
             uiEvent = .showError("Geçmiş etkinlikte değişiklik yapılamaz.")
             return
         }
+        guard await ensureAdminForDeletion() else { return }
 
         isLoading = true
         defer { isLoading = false }
 
         let effectiveEventId = eventId ?? currentEvent?.id
         await eventRepository.deleteGuest(guestId: guestId, eventId: effectiveEventId)
+        // Aksi hâlde `mergedGuests` birleşimi silinen misafiri bir süre daha gösterirdi.
+        optimisticGuestUpdates.removeValue(forKey: guestId)
         await syncAfterOperation()
         uiEvent = .showSuccess("Misafir silindi")
     }
@@ -492,6 +602,7 @@ final class EventViewModel {
             uiEvent = .showError("İnternet bağlantısı gerekli.")
             return
         }
+        guard await ensureAdminForDeletion() else { return }
 
         isLoading = true
         defer { isLoading = false }
@@ -502,6 +613,7 @@ final class EventViewModel {
         let eventId = currentEvent?.id
         for id in ids {
             await eventRepository.deleteGuest(guestId: id, eventId: eventId)
+            optimisticGuestUpdates.removeValue(forKey: id)
         }
         await syncAfterOperation()
         selectedGuestIds = []
@@ -535,7 +647,8 @@ final class EventViewModel {
             guard var guest = optimisticGuestUpdates[id] ?? guests.first(where: { $0.id == id }) else { continue }
             guest.sectionTitle = trimmed
             optimisticGuestUpdates[id] = guest
-            await eventRepository.updateGuest(guest)
+            // `persistGuestUpdate` üzerinden: hata bildirimi + iyimser kaydın güvenli temizliği.
+            await persistGuestUpdate(guest)
         }
         await syncAfterOperation()
         selectedGuestIds = []
@@ -554,7 +667,7 @@ final class EventViewModel {
         }
         guest.sectionTitle = nil
         optimisticGuestUpdates[guestId] = guest
-        await eventRepository.updateGuest(guest)
+        guard await persistGuestUpdate(guest) else { return }
         await syncAfterOperation()
         uiEvent = .showSuccess("Misafir heyetten çıkarıldı")
     }
@@ -588,6 +701,7 @@ final class EventViewModel {
 
     func deleteSelectedEvents() async {
         guard checkInternetConnectivity() else { return }
+        guard await ensureAdminForDeletion() else { return }
         isLoading = true
         defer { isLoading = false }
 
@@ -605,31 +719,49 @@ final class EventViewModel {
     // MARK: - Guest times / photo / details
 
     /// Misafirin giriş/çıkış saatlerini günceller (Android `updateGuestTimes`).
-    /// `entryTime` / `exitTime` "HH:mm" biçiminde beklenir; boş/nil değer ilgili saati temizler.
+    ///
+    /// Saatler doğrudan `Date` olarak alınır: önceden "HH:mm" metni üzerinden gidiliyordu ve
+    /// cihazda "24 Saat" kapalıyken üretilen "6:05 ÖS" gibi metinler ayrıştırılamayıp saatin
+    /// sessizce silinmesine yol açıyordu. `nil` ilgili saati temizler (yalnızca yönetici).
+    ///
+    /// Dönüş: değişiklik sunucuda gerçekten kaydedildi mi.
+    @discardableResult
     func updateGuestTimes(
         guestId: String,
         eventId: String,
-        entryTime: String? = nil,
-        exitTime: String? = nil
-    ) async {
+        entryDate: Date? = nil,
+        exitDate: Date? = nil,
+        currentEvent: Event? = nil
+    ) async -> Bool {
+        if isEventPast(currentEvent) {
+            uiEvent = .showError("Geçmiş etkinlikte değişiklik yapılamaz.")
+            return false
+        }
         guard checkInternetConnectivity() else {
             uiEvent = .showError("İnternet bağlantısı gerekli.")
-            return
+            return false
         }
-        var resolvedGuest = optimisticGuestUpdates[guestId]
+        // Sıra önemli: canlı dinleyici verisi (`guests`) sunucudan itilen en güncel hâldir;
+        // repository okuması yalnızca listede bulunamazsa yedek olarak kullanılır.
+        var resolvedGuest = optimisticGuestUpdates[guestId] ?? guests.first(where: { $0.id == guestId })
         if resolvedGuest == nil {
             resolvedGuest = await eventRepository.guest(eventId: eventId, guestId: guestId)
         }
-        if resolvedGuest == nil {
-            resolvedGuest = guests.first(where: { $0.id == guestId })
-        }
         guard var guest = resolvedGuest else {
             uiEvent = .showError("Misafir bulunamadı.")
-            return
+            return false
         }
 
-        guest.entryTime = isoTimestamp(fromDisplayTime: entryTime)
-        guest.exitTime = isoTimestamp(fromDisplayTime: exitTime)
+        // Kayıtlı bir saati tamamen silmek fiilen kısmi sıfırlamadır; yalnızca yönetici yapabilir.
+        let clearsEntry = guest.entryTime != nil && entryDate == nil
+        let clearsExit = guest.exitTime != nil && exitDate == nil
+        if !isAdminDevice, clearsEntry || clearsExit {
+            uiEvent = .showError("Kayıtlı saati silme yetkisi yalnızca yöneticidedir.")
+            return false
+        }
+
+        guest.entryTime = entryDate.map { Self.isoFormatter.string(from: $0) }
+        guest.exitTime = exitDate.map { Self.isoFormatter.string(from: $0) }
 
         if guest.exitTime != nil {
             guest.status = .exited
@@ -640,8 +772,9 @@ final class EventViewModel {
         }
 
         optimisticGuestUpdates[guestId] = guest
-        await persistGuestUpdate(guest)
+        guard await persistGuestUpdate(guest) else { return false }
         uiEvent = .showSuccess("Saat bilgisi güncellendi")
+        return true
     }
 
     /// Misafir fotoğrafını anlık olarak günceller (Android `updateGuestPhoto`).
@@ -690,6 +823,21 @@ final class EventViewModel {
 
         var updated = guestWithFormattedName(guest)
 
+        // Kayıp güncelleme koruması: durum ve saat alanları düzenleme formunun (açıldığı andaki)
+        // anlık görüntüsünden değil, canlı kayıttan alınır. Aksi hâlde form açıkken yapılan
+        // bir giriş/çıkış işlemi, sadece isim değiştirilse bile geri alınıyordu.
+        var live = optimisticGuestUpdates[guest.id] ?? guests.first { $0.id == guest.id }
+        if live == nil {
+            live = await eventRepository.guest(eventId: guest.eventId, guestId: guest.id)
+        }
+        if let live {
+            updated.status = live.status
+            updated.entryTime = live.entryTime
+            updated.exitTime = live.exitTime
+            updated.isRedListPending = live.isRedListPending
+            updated.deletedAt = live.deletedAt
+        }
+
         if let newPhotoLocalURL {
             let result = await GuestPhotoStorage.uploadGuestPhoto(
                 localURL: newPhotoLocalURL,
@@ -703,8 +851,10 @@ final class EventViewModel {
             }
         }
 
-        await eventRepository.updateGuest(updated)
-        uiEvent = .showSuccess("Misafir bilgileri güncellendi")
+        optimisticGuestUpdates[updated.id] = updated
+        if await persistGuestUpdate(updated) {
+            uiEvent = .showSuccess("Misafir bilgileri güncellendi")
+        }
     }
 
     // MARK: - PIN permission
@@ -738,6 +888,7 @@ final class EventViewModel {
             guard let self else { return }
             for await snapshot in eventRepository.allGuests() {
                 self.guests = snapshot
+                self.reconcileOptimisticUpdates(with: snapshot)
             }
         })
 
@@ -765,6 +916,21 @@ final class EventViewModel {
 
     private func checkInternetConnectivity() -> Bool {
         NetworkMonitor.shared.isConnected
+    }
+
+    /// Silme işlemleri yalnızca yönetici cihazlarda yapılabilir (arayüz kapılarının arka duvarı).
+    ///
+    /// `isAdminDevice` `false` başlayıp Firestore turundan sonra `true` olduğu için, gerekirse
+    /// tek seferlik yeniden doğrulanır; aksi hâlde açılışın ilk anlarında yönetici de reddedilirdi.
+    private func ensureAdminForDeletion() async -> Bool {
+        if !isAdminDevice {
+            await checkAdminStatus()
+        }
+        guard isAdminDevice else {
+            uiEvent = .showError("Bu işlem için yetkiniz yok!")
+            return false
+        }
+        return true
     }
 
     private func isEventPast(_ event: Event?) -> Bool {
@@ -880,11 +1046,62 @@ final class EventViewModel {
         return "\(guest.name) \(action)"
     }
 
-    private func persistGuestUpdate(_ guest: Guest) async {
+    /// Misafiri Firestore'a yazar. Yazma başarısızsa iyimser güncellemeyi geri alır ve
+    /// hatayı kullanıcıya gösterir; başarılıysa iyimser değeri dinleyici teyit edene kadar korur.
+    ///
+    /// Dönen değer `false` ise çağıran **başarı mesajı göstermemelidir**.
+    @discardableResult
+    private func persistGuestUpdate(_ guest: Guest) async -> Bool {
         let guestId = guest.id
-        await eventRepository.updateGuest(guest)
-        try? await Task.sleep(nanoseconds: Self.optimisticClearDelayNanoseconds)
-        optimisticGuestUpdates.removeValue(forKey: guestId)
+        switch await eventRepository.updateGuestChecked(guest) {
+        case .failure(let error):
+            // Yalnızca kendi yazdığımız değer hâlâ duruyorsa geri al; daha yeni bir yazımı ezme.
+            if optimisticGuestUpdates[guestId] == guest {
+                optimisticGuestUpdates.removeValue(forKey: guestId)
+            }
+            Self.logger.error("persistGuestUpdate hatası: \(error.localizedDescription, privacy: .public)")
+            uiEvent = .showError("Değişiklik kaydedilemedi. Lütfen tekrar deneyin.")
+            return false
+        case .success:
+            scheduleOptimisticSafetyClear(for: guest)
+            return true
+        }
+    }
+
+    /// Tek misafirin güncel hâli (iyimser değer önceliklidir).
+    func guest(withId id: String) -> Guest? {
+        optimisticGuestUpdates[id] ?? guests.first { $0.id == id }
+    }
+
+    /// Dinleyici teyidi hiç gelmezse iyimser kaydın sonsuza kadar takılı kalmaması için güvenlik ağı.
+    ///
+    /// Bilerek `observationTasks`'e eklenmez: o tutucu yalnızca ekleme yapıyor, hiç budamıyor —
+    /// her yazma için bir görev eklemek ömür boyu büyüyen bir dizi oluştururdu.
+    private func scheduleOptimisticSafetyClear(for guest: Guest) {
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: Self.optimisticMaxLifetimeNanoseconds)
+            guard let self, self.optimisticGuestUpdates[guest.id] == guest else { return }
+            self.optimisticGuestUpdates.removeValue(forKey: guest.id)
+        }
+    }
+
+    /// Firestore snapshot'ı iyimser değerle aynı giriş/çıkış/durum bilgisini taşıyorsa
+    /// iyimser kaydı düşürür. Böylece iyimser değer "kör zamanlayıcıyla" değil, gerçek teyitle silinir.
+    private func reconcileOptimisticUpdates(with snapshot: [Guest]) {
+        guard !optimisticGuestUpdates.isEmpty else { return }
+        var remaining = optimisticGuestUpdates
+        for remote in snapshot {
+            guard let optimistic = remaining[remote.id] else { continue }
+            if remote.entryTime == optimistic.entryTime,
+               remote.exitTime == optimistic.exitTime,
+               remote.status == optimistic.status,
+               remote.sectionTitle == optimistic.sectionTitle {
+                remaining.removeValue(forKey: remote.id)
+            }
+        }
+        if remaining.count != optimisticGuestUpdates.count {
+            optimisticGuestUpdates = remaining
+        }
     }
 
     private func firebaseRedListMatch(for normalizedName: String) async -> Bool? {
@@ -926,30 +1143,4 @@ final class EventViewModel {
         _ = await autoSyncManager.syncImmediately()
     }
 
-    /// "HH:mm" görüntü saatini bugünün ISO 8601 zaman damgasına çevirir; boş/nil → nil.
-    private func isoTimestamp(fromDisplayTime display: String?) -> String? {
-        guard let display else { return nil }
-        let trimmed = display.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-
-        let parts = trimmed.split(separator: ":")
-        guard parts.count == 2,
-              let hour = Int(parts[0]),
-              let minute = Int(parts[1]) else {
-            return nil
-        }
-
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = TimeZone.current
-        let now = Date()
-        guard let date = calendar.date(
-            bySettingHour: min(max(hour, 0), 23),
-            minute: min(max(minute, 0), 59),
-            second: 0,
-            of: now
-        ) else {
-            return nil
-        }
-        return ISO8601DateFormatter().string(from: date)
-    }
 }

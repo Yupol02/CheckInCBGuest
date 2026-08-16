@@ -5,6 +5,8 @@ import SwiftUI
 struct EventDetailView: View {
 
     let event: Event
+    /// Kişi aramasından gelindiğinde vurgulanacak misafir.
+    var highlightGuestId: String?
 
     @Environment(EventViewModel.self) private var eventVM
     @Environment(\.appNavigationPath) private var navigationPath
@@ -15,10 +17,19 @@ struct EventDetailView: View {
     @State private var showDeleteConfirm = false
     @State private var pinPromptGuestId: String?
     @State private var approvalGuest: Guest?
+    @State private var pendingStatusChange: Guest?
     @State private var pendingCount = 0
     @State private var toast: ToastMessage?
+    @State private var highlightedGuestId: String?
+    @State private var scrollProxy: ScrollViewProxy?
 
     private var isPast: Bool { event.isExpired || event.status == .past }
+
+    /// Silme yalnızca yönetici cihazlarda; yetkisizde çöp kutusu hiç çizilmez.
+    private var guestDeleteAction: (() -> Void)? {
+        guard eventVM.isAdminDevice else { return nil }
+        return { showDeleteConfirm = true }
+    }
 
     private var eventGuests: [Guest] {
         eventVM.mergedGuests.filter {
@@ -56,7 +67,7 @@ struct EventDetailView: View {
                         eventVM.selectAllGuests(ids: visibleGuests.map(\.id))
                     },
                     onClearSelection: { eventVM.clearSelection() },
-                    onDelete: { showDeleteConfirm = true },
+                    onDelete: guestDeleteAction,
                     onDone: { eventVM.toggleSelectionMode() },
                     canDelete: !isPast && !eventVM.selectedGuestIds.isEmpty,
                     onAddGroup: isPast ? nil : { showAssignSection = true }
@@ -110,15 +121,68 @@ struct EventDetailView: View {
         } message: {
             Text("Misafir onaya gönderilsin mi?")
         }
+        .confirmationDialog(
+            pendingStatusChange.map(GuestStatusChangePrompt.title) ?? "",
+            isPresented: statusChangeBinding,
+            titleVisibility: .visible,
+            presenting: pendingStatusChange
+        ) { guest in
+            Button(
+                GuestStatusChangePrompt.confirmLabel(for: guest),
+                role: GuestStatusChangePrompt.isDestructive(guest) ? .destructive : nil
+            ) {
+                pendingStatusChange = nil
+                Task { await eventVM.updateGuestStatus(guestId: guest.id, eventId: event.id, currentEvent: event) }
+            }
+            Button("Vazgeç", role: .cancel) { pendingStatusChange = nil }
+        } message: { guest in
+            if let message = GuestStatusChangePrompt.message(for: guest) {
+                Text(message)
+            }
+        }
         .task(id: event.id) {
             for await guests in eventVM.pendingRedListGuestsStream(for: event.id) {
                 pendingCount = guests.count
             }
         }
-        .onChange(of: eventVM.uiEvent) { _, newValue in
-            handleUiEvent(newValue)
+        .task(id: highlightGuestId) {
+            await focusHighlightedGuest()
+        }
+        .onChange(of: eventVM.uiEventNonce) { _, _ in
+            handleUiEvent(eventVM.uiEvent)
         }
         .toast($toast)
+    }
+
+    /// Kişi aramasından gelindiğinde hedef misafire kaydırır ve kısa süre vurgular.
+    private func focusHighlightedGuest() async {
+        guard let target = highlightGuestId else { return }
+
+        // `searchQuery` ve `activeFilterTab` paylaşılan alanlar; önceki ziyaretten kalan bir
+        // değer hedef misafiri gizleyebilir. Vurgulamadan önce sıfırlanır.
+        eventVM.onSearchQueryChanged("")
+        filter = .all
+        eventVM.onFilterTabChanged(nil)
+
+        // Misafirler Firestore'dan asenkron geldiği için satır henüz oluşmamış olabilir.
+        for _ in 0..<12 {
+            if visibleGuests.contains(where: { $0.id == target }) { break }
+            try? await Task.sleep(nanoseconds: 250_000_000)
+        }
+        guard visibleGuests.contains(where: { $0.id == target }) else { return }
+
+        // Liste bu anda yeni oluşmuş olabilir; `scrollProxy` `onAppear` ile atanıyor.
+        if scrollProxy == nil {
+            try? await Task.sleep(nanoseconds: 200_000_000)
+        }
+
+        withAnimation(.easeInOut(duration: 0.35)) {
+            // `GuestListUiItem.id` biçimi: "guest-<id>".
+            scrollProxy?.scrollTo("guest-\(target)", anchor: .center)
+        }
+        highlightedGuestId = target
+        try? await Task.sleep(nanoseconds: 2_500_000_000)
+        highlightedGuestId = nil
     }
 
     // MARK: - Sections
@@ -197,17 +261,20 @@ struct EventDetailView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .refreshable { await eventVM.refreshEvents() }
         } else {
-            ScrollView {
-                LazyVStack(spacing: AppTheme.Spacing.sm) {
-                    ForEach(groupedListItems) { item in
-                        groupedRow(item)
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(spacing: AppTheme.Spacing.sm) {
+                        ForEach(groupedListItems) { item in
+                            groupedRow(item)
+                        }
                     }
+                    .padding(.horizontal, AppTheme.Spacing.lg)
+                    .padding(.bottom, AppTheme.Spacing.lg)
                 }
-                .padding(.horizontal, AppTheme.Spacing.lg)
-                .padding(.bottom, AppTheme.Spacing.lg)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .refreshable { await eventVM.refreshEvents() }
+                .onAppear { scrollProxy = proxy }
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .refreshable { await eventVM.refreshEvents() }
         }
     }
 
@@ -266,9 +333,7 @@ struct EventDetailView: View {
                 isRedList: eventVM.redListGuestIds.contains(guest.id),
                 orderNumber: rowContext.orderNumber,
                 isInDelegationSection: rowContext.isInDelegationSection,
-                onToggleStatus: isPast ? nil : {
-                    Task { await eventVM.updateGuestStatus(guestId: guest.id, eventId: event.id, currentEvent: event) }
-                }
+                onToggleStatus: toggleAction(for: guest)
             )
             .rowTapAndLongPress(
                 onTap: { navigationPath?.push(.guestDetail(guest: guest, event: event)) },
@@ -277,7 +342,23 @@ struct EventDetailView: View {
                     eventVM.toggleGuestSelection(id: guest.id)
                 }
             )
+            .overlay(
+                RoundedRectangle(cornerRadius: AppTheme.Radius.md, style: .continuous)
+                    .stroke(AppTheme.Colors.accent, lineWidth: 2.5)
+                    .opacity(highlightedGuestId == guest.id ? 1 : 0)
+                    .animation(.easeInOut(duration: 0.25), value: highlightedGuestId)
+            )
         }
+    }
+
+    /// Satırdaki durum rozetinin dokunulabilirliği.
+    ///
+    /// `nil` dönerse `GuestCard` rozeti düz (tıklanamaz) çizer. Geçmiş etkinlikte kapalıdır;
+    /// `.exited` durumundan sıfırlama ise yalnızca yöneticiye açıktır.
+    private func toggleAction(for guest: Guest) -> (() -> Void)? {
+        guard !isPast else { return nil }
+        guard guest.status != .exited || eventVM.isAdminDevice else { return nil }
+        return { pendingStatusChange = guest }
     }
 
     @ToolbarContentBuilder
@@ -322,6 +403,13 @@ struct EventDetailView: View {
         Binding(
             get: { approvalGuest != nil },
             set: { if !$0 { approvalGuest = nil } }
+        )
+    }
+
+    private var statusChangeBinding: Binding<Bool> {
+        Binding(
+            get: { pendingStatusChange != nil },
+            set: { if !$0 { pendingStatusChange = nil } }
         )
     }
 
