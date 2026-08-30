@@ -2,9 +2,9 @@ import FirebaseAuth
 import Foundation
 import os.log
 
-/// Firebase Auth ile e-posta / şifre giriş ve kayıt (Android `FirebaseAuthRepository` eşleniği).
+/// Firebase Auth ile e-posta / şifre girişi (Android `FirebaseAuthRepository` eşleniği).
 ///
-/// `AppAuth.publicRegistrationEnabled` açıkken `createUser` ile herkes kayıt olabilir.
+/// v1.4: Kayıt (`createUser`) kaldırıldı — hesaplar yalnızca Firebase Console'dan açılır.
 /// UI yönlendirmesi için `@MainActor` üzerinde çalışır; `authState` dinleyicisi
 /// iptal edildiğinde `removeStateDidChangeListener` ile temizlenir.
 @MainActor
@@ -35,27 +35,6 @@ final class FirebaseAuthRepository: AuthRepository {
         }
     }
 
-    func signUp(email: String, password: String) async -> LoginResult {
-        guard AppAuth.publicRegistrationEnabled else {
-            return .error(message: "Yeni hesap kaydı şu an kapalı. Giriş bilgileriniz için organizatörünüze başvurun.")
-        }
-
-        let trimmedEmail = email.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        if trimmedEmail.isEmpty || Self.isBlank(password) {
-            return .error(message: "E-posta ve şifre boş olamaz")
-        }
-        if password.count < AppAuth.minPasswordLength {
-            return .error(message: "Şifre en az \(AppAuth.minPasswordLength) karakter olmalıdır")
-        }
-
-        do {
-            _ = try await auth.createUser(withEmail: trimmedEmail, password: password)
-            return .success
-        } catch {
-            return Self.mapSignUpError(error)
-        }
-    }
 
     func signOut() async {
         try? auth.signOut()
@@ -100,29 +79,6 @@ final class FirebaseAuthRepository: AuthRepository {
 
     // MARK: - Error mapping
 
-    private nonisolated static func mapSignUpError(_ error: Error) -> LoginResult {
-        let nsError = error as NSError
-
-        if nsError.domain == AuthErrorDomain,
-           let code = AuthErrorCode.Code(rawValue: nsError.code) {
-            switch code {
-            case .invalidEmail:
-                return .error(message: "Geçersiz e-posta adresi")
-            case .emailAlreadyInUse:
-                return .error(message: "Bu e-posta ile zaten bir hesap var. Giriş yapmayı deneyin.")
-            case .weakPassword:
-                return .error(message: "Şifre çok zayıf. En az \(AppAuth.minPasswordLength) karakter kullanın.")
-            default:
-                break
-            }
-        }
-
-        let message = error.localizedDescription
-        if message.isEmpty {
-            return .error(message: "Kayıt yapılamadı. Lütfen tekrar deneyin.")
-        }
-        return .error(message: message)
-    }
 
     private nonisolated static func mapSignInError(_ error: Error) -> LoginResult {
         let nsError = error as NSError

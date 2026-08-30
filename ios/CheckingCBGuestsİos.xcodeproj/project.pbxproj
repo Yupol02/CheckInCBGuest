@@ -20,14 +20,19 @@
 		1FBB2D6A2FD0A100009E55BD /* RedListMember.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FBB2D692FD0A100009E55BD /* RedListMember.swift */; };
 		1FBB2D6C2FD0A100009E55BD /* DomainPreviews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FBB2D6B2FD0A100009E55BD /* DomainPreviews.swift */; };
 		1FBB2D6E2FD0A200009E55BD /* AuthorizedDevice.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FBB2D6D2FD0A200009E55BD /* AuthorizedDevice.swift */; };
+		1FCC01042FE0C000009E55BD /* DeviceBinding.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FCC01032FE0C000009E55BD /* DeviceBinding.swift */; };
 		1FBB2D722FD0A200009E55BD /* RepositoryResults.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FBB2D712FD0A200009E55BD /* RepositoryResults.swift */; };
 		1FBB2D742FD0A200009E55BD /* AuthRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FBB2D732FD0A200009E55BD /* AuthRepository.swift */; };
 		1FBB2D762FD0A200009E55BD /* EventRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FBB2D752FD0A200009E55BD /* EventRepository.swift */; };
 		1FBB2D782FD0A200009E55BD /* RedListRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FBB2D772FD0A200009E55BD /* RedListRepository.swift */; };
 		1FBB2D7A2FD0A200009E55BD /* AuthorizedDeviceRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FBB2D792FD0A200009E55BD /* AuthorizedDeviceRepository.swift */; };
+		1FCC010A2FE0C000009E55BD /* FirebaseAdminUserRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FCC01092FE0C000009E55BD /* FirebaseAdminUserRepository.swift */; };
+		1FCC01082FE0C000009E55BD /* FirebaseDeviceBindingRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FCC01072FE0C000009E55BD /* FirebaseDeviceBindingRepository.swift */; };
+		1FCC01062FE0C000009E55BD /* DeviceBindingRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FCC01052FE0C000009E55BD /* DeviceBindingRepository.swift */; };
 		1FBB2D7C2FD0A300009E55BD /* FirebaseAuthRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FBB2D7B2FD0A300009E55BD /* FirebaseAuthRepository.swift */; };
 		1FBB2D7E2FD0A400009E55BD /* FirebaseAuthorizedDeviceRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FBB2D7D2FD0A400009E55BD /* FirebaseAuthorizedDeviceRepository.swift */; };
 		1FBB2D802FD0A400009E55BD /* AppAuth.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FBB2D7F2FD0A400009E55BD /* AppAuth.swift */; };
+		1FCC01022FE0C000009E55BD /* KeychainStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FCC01012FE0C000009E55BD /* KeychainStore.swift */; };
 		1FBB2D822FD0A500009E55BD /* FirestoreDataValidator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FBB2D812FD0A500009E55BD /* FirestoreDataValidator.swift */; };
 		1FBB2D842FD0A500009E55BD /* FirebaseEventRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FBB2D832FD0A500009E55BD /* FirebaseEventRepository.swift */; };
 		1FBB2D862FD0A600009E55BD /* FirebaseRedListRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FBB2D852FD0A600009E55BD /* FirebaseRedListRepository.swift */; };
@@ -46,7 +51,6 @@
 		1FBB2DA42FD0AC00009E55BD /* MainDashboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FBB2DA02FD0AC00009E55BD /* MainDashboardView.swift */; };
 		1FBB2DA52FD0AC00009E55BD /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FBB2DA12FD0AC00009E55BD /* RootView.swift */; };
 		1FBB2DA72FD0AD00009E55BD /* GoogleService-Info.plist in Resources */ = {isa = PBXBuildFile; fileRef = 1FBB2DA62FD0AD00009E55BD /* GoogleService-Info.plist */; };
-		1FBB2DAB2FD0AC00009E55BD /* SignUpView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FBB2DAA2FD0AC00009E55BD /* SignUpView.swift */; };
 		1FBB2DAC2FD0AD00009E55BD /* FirebaseAuth in Frameworks */ = {isa = PBXBuildFile; productRef = 1FBB2DA92FD0AD00009E55BD /* FirebaseAuth */; };
 		1FBB2DAD2FD0AD00009E55BD /* FirebaseFirestore in Frameworks */ = {isa = PBXBuildFile; productRef = 1FBB2DAA2FD0AD00009E55BD /* FirebaseFirestore */; };
 		1FBB2DAE2FD0AD00009E55BD /* FirebaseMessaging in Frameworks */ = {isa = PBXBuildFile; productRef = 1FBB2DAB2FD0AD00009E55BD /* FirebaseMessaging */; };
@@ -115,14 +119,19 @@
 		1FBB2D692FD0A100009E55BD /* RedListMember.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RedListMember.swift; sourceTree = "<group>"; };
 		1FBB2D6B2FD0A100009E55BD /* DomainPreviews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DomainPreviews.swift; sourceTree = "<group>"; };
 		1FBB2D6D2FD0A200009E55BD /* AuthorizedDevice.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthorizedDevice.swift; sourceTree = "<group>"; };
+		1FCC01032FE0C000009E55BD /* DeviceBinding.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceBinding.swift; sourceTree = "<group>"; };
 		1FBB2D712FD0A200009E55BD /* RepositoryResults.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RepositoryResults.swift; sourceTree = "<group>"; };
 		1FBB2D732FD0A200009E55BD /* AuthRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthRepository.swift; sourceTree = "<group>"; };
 		1FBB2D752FD0A200009E55BD /* EventRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EventRepository.swift; sourceTree = "<group>"; };
 		1FBB2D772FD0A200009E55BD /* RedListRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RedListRepository.swift; sourceTree = "<group>"; };
 		1FBB2D792FD0A200009E55BD /* AuthorizedDeviceRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthorizedDeviceRepository.swift; sourceTree = "<group>"; };
+		1FCC01092FE0C000009E55BD /* FirebaseAdminUserRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FirebaseAdminUserRepository.swift; sourceTree = "<group>"; };
+		1FCC01072FE0C000009E55BD /* FirebaseDeviceBindingRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FirebaseDeviceBindingRepository.swift; sourceTree = "<group>"; };
+		1FCC01052FE0C000009E55BD /* DeviceBindingRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceBindingRepository.swift; sourceTree = "<group>"; };
 		1FBB2D7B2FD0A300009E55BD /* FirebaseAuthRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FirebaseAuthRepository.swift; sourceTree = "<group>"; };
 		1FBB2D7D2FD0A400009E55BD /* FirebaseAuthorizedDeviceRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FirebaseAuthorizedDeviceRepository.swift; sourceTree = "<group>"; };
 		1FBB2D7F2FD0A400009E55BD /* AppAuth.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppAuth.swift; sourceTree = "<group>"; };
+		1FCC01012FE0C000009E55BD /* KeychainStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainStore.swift; sourceTree = "<group>"; };
 		1FBB2D812FD0A500009E55BD /* FirestoreDataValidator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FirestoreDataValidator.swift; sourceTree = "<group>"; };
 		1FBB2D832FD0A500009E55BD /* FirebaseEventRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FirebaseEventRepository.swift; sourceTree = "<group>"; };
 		1FBB2D852FD0A600009E55BD /* FirebaseRedListRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FirebaseRedListRepository.swift; sourceTree = "<group>"; };
@@ -141,7 +150,6 @@
 		1FBB2DA02FD0AC00009E55BD /* MainDashboardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainDashboardView.swift; sourceTree = "<group>"; };
 		1FBB2DA12FD0AC00009E55BD /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
 		1FBB2DA62FD0AD00009E55BD /* GoogleService-Info.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; path = "GoogleService-Info.plist"; sourceTree = "<group>"; };
-		1FBB2DAA2FD0AC00009E55BD /* SignUpView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SignUpView.swift; sourceTree = "<group>"; };
 		1FBC01012FD0B000009E55BD /* AppConstants.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppConstants.swift; sourceTree = "<group>"; };
 		1FBC01032FD0B000009E55BD /* DeviceIdentifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceIdentifier.swift; sourceTree = "<group>"; };
 		1FBC01052FD0B000009E55BD /* Validators.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Validators.swift; sourceTree = "<group>"; };
@@ -270,6 +278,7 @@
 				1FBB2D672FD0A100009E55BD /* Guest.swift */,
 				1FBB2D692FD0A100009E55BD /* RedListMember.swift */,
 				1FBB2D6D2FD0A200009E55BD /* AuthorizedDevice.swift */,
+				1FCC01032FE0C000009E55BD /* DeviceBinding.swift */,
 				1FBB2D6B2FD0A100009E55BD /* DomainPreviews.swift */,
 				1FBC01052FD0B000009E55BD /* Validators.swift */,
 				1FBB2D932FD0A900009E55BD /* Excel */,
@@ -298,6 +307,9 @@
 				1FBB2D772FD0A200009E55BD /* RedListRepository.swift */,
 				1FBB2D992FD0AB00009E55BD /* SyncRepository.swift */,
 				1FBB2D792FD0A200009E55BD /* AuthorizedDeviceRepository.swift */,
+				1FCC01092FE0C000009E55BD /* FirebaseAdminUserRepository.swift */,
+				1FCC01072FE0C000009E55BD /* FirebaseDeviceBindingRepository.swift */,
+				1FCC01052FE0C000009E55BD /* DeviceBindingRepository.swift */,
 				1FBB2D7B2FD0A300009E55BD /* FirebaseAuthRepository.swift */,
 				1FBB2D7D2FD0A400009E55BD /* FirebaseAuthorizedDeviceRepository.swift */,
 				1FBB2D832FD0A500009E55BD /* FirebaseEventRepository.swift */,
@@ -311,6 +323,7 @@
 			isa = PBXGroup;
 			children = (
 				1FBB2D7F2FD0A400009E55BD /* AppAuth.swift */,
+				1FCC01012FE0C000009E55BD /* KeychainStore.swift */,
 				1FBC01012FD0B000009E55BD /* AppConstants.swift */,
 				1FBC01032FD0B000009E55BD /* DeviceIdentifier.swift */,
 				1FBC010B2FD0B000009E55BD /* AutoSyncManager.swift */,
@@ -344,7 +357,6 @@
 				1FBB2D952FD0AA00009E55BD /* RedListViewModel.swift */,
 				1FBB2D9B2FD0AB00009E55BD /* SyncViewModel.swift */,
 				1FBB2D9F2FD0AC00009E55BD /* LoginView.swift */,
-				1FBB2DAA2FD0AC00009E55BD /* SignUpView.swift */,
 				1FBB2DA02FD0AC00009E55BD /* MainDashboardView.swift */,
 				1FBB2DA12FD0AC00009E55BD /* RootView.swift */,
 			);
@@ -577,14 +589,19 @@
 				1FBB2D6A2FD0A100009E55BD /* RedListMember.swift in Sources */,
 				1FBB2D6C2FD0A100009E55BD /* DomainPreviews.swift in Sources */,
 				1FBB2D6E2FD0A200009E55BD /* AuthorizedDevice.swift in Sources */,
+				1FCC01042FE0C000009E55BD /* DeviceBinding.swift in Sources */,
 				1FBB2D722FD0A200009E55BD /* RepositoryResults.swift in Sources */,
 				1FBB2D742FD0A200009E55BD /* AuthRepository.swift in Sources */,
 				1FBB2D762FD0A200009E55BD /* EventRepository.swift in Sources */,
 				1FBB2D782FD0A200009E55BD /* RedListRepository.swift in Sources */,
 				1FBB2D7A2FD0A200009E55BD /* AuthorizedDeviceRepository.swift in Sources */,
+				1FCC010A2FE0C000009E55BD /* FirebaseAdminUserRepository.swift in Sources */,
+				1FCC01082FE0C000009E55BD /* FirebaseDeviceBindingRepository.swift in Sources */,
+				1FCC01062FE0C000009E55BD /* DeviceBindingRepository.swift in Sources */,
 				1FBB2D7C2FD0A300009E55BD /* FirebaseAuthRepository.swift in Sources */,
 				1FBB2D7E2FD0A400009E55BD /* FirebaseAuthorizedDeviceRepository.swift in Sources */,
 				1FBB2D802FD0A400009E55BD /* AppAuth.swift in Sources */,
+				1FCC01022FE0C000009E55BD /* KeychainStore.swift in Sources */,
 				1FBC01022FD0B000009E55BD /* AppConstants.swift in Sources */,
 				1FBC01042FD0B000009E55BD /* DeviceIdentifier.swift in Sources */,
 				1FBC01062FD0B000009E55BD /* Validators.swift in Sources */,
@@ -627,7 +644,6 @@
 				1FBB2D9C2FD0AB00009E55BD /* SyncViewModel.swift in Sources */,
 				1FBB2DA22FD0AC00009E55BD /* AppDependencies.swift in Sources */,
 				1FBB2DA32FD0AC00009E55BD /* LoginView.swift in Sources */,
-				1FBB2DAB2FD0AC00009E55BD /* SignUpView.swift in Sources */,
 				1FBB2DA42FD0AC00009E55BD /* MainDashboardView.swift in Sources */,
 				1FBB2DA52FD0AC00009E55BD /* RootView.swift in Sources */,
 			);
@@ -804,8 +820,9 @@
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				IPHONEOS_DEPLOYMENT_TARGET = 17.2;
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
-				MARKETING_VERSION = 1.3;
+				MARKETING_VERSION = 1.4;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.checkingcbguests.CheckingCBGuestsI-os";
+				PRODUCT_MODULE_NAME = CheckingCBGuestsIos;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
@@ -839,8 +856,9 @@
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				IPHONEOS_DEPLOYMENT_TARGET = 17.2;
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
-				MARKETING_VERSION = 1.3;
+				MARKETING_VERSION = 1.4;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.checkingcbguests.CheckingCBGuestsI-os";
+				PRODUCT_MODULE_NAME = CheckingCBGuestsIos;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";

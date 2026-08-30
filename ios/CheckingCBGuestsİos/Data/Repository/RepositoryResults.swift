@@ -80,6 +80,37 @@ struct AuthenticatedUser: Sendable, Hashable {
     let isEmailVerified: Bool
 }
 
+// MARK: - Cihaz bağlama
+
+/// Cihaz bağlama/doğrulama sonucu.
+///
+/// Not: `.rejected` bir HATA değil, bir İŞ SONUCUDUR — bu yüzden `throws` yerine
+/// değer olarak modellenmiştir. Çağıran dört ayrı sonucu dört ayrı arayüz davranışına
+/// çevirir. Bu, `LoginResult`/`RedListResult` ile de tutarlıdır.
+enum DeviceBindingResult: Sendable, Hashable {
+    /// Yeni bağ oluşturuldu (bu e-posta ilk kez bir cihaza bağlandı).
+    case bound
+    /// Mevcut bağ bu cihaza ait.
+    case matched
+    /// Başka bir cihaza bağlı. `boundDeviceName` biliniyorsa mesajda gösterilir.
+    case rejected(boundDeviceName: String?)
+    /// Sunucuya ulaşılamadı. İlk bağlamada giriş reddedilir; sonraki
+    /// doğrulamalarda ihtimam süresi boyunca göz ardı edilir.
+    case networkRequired
+    /// İzin/kural hatası veya beklenmeyen durum.
+    case failed(message: String)
+}
+
+/// Admin sorgusu sonucu — üç durumlu olması KASITLIDIR.
+///
+/// `.unavailable` ASLA `.known(false)` gibi ele alınmamalıdır: okuma hatasını
+/// "admin değil" saymak, geçici bir ağ sorununda yöneticinin tüm oturum boyunca
+/// yetkisiz kalmasına yol açar.
+enum AdminLookupResult: Sendable, Hashable {
+    case known(Bool)
+    case unavailable
+}
+
 // MARK: - Kırmızı liste
 
 /// Kırmızı liste işlem sonucu (Android `RedListResult`).

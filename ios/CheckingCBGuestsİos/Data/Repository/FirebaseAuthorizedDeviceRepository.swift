@@ -25,6 +25,8 @@ actor FirebaseAuthorizedDeviceRepository: AuthorizedDeviceRepository {
     }
 
     private let firestore: Firestore
+    /// Admin yetkisinin kaynağı (v1.4: Firestore `admin_users`, önceden koda gömülü liste).
+    private let adminUserRepository: any AdminUserRepository
     private var lastUpdateCache: [String: Date] = [:]
     private var deviceCache: [String: CachedDevice] = [:]
 
@@ -42,8 +44,12 @@ actor FirebaseAuthorizedDeviceRepository: AuthorizedDeviceRepository {
 
     // MARK: - Init
 
-    init(firestore: Firestore = Firestore.firestore()) {
+    init(
+        firestore: Firestore = Firestore.firestore(),
+        adminUserRepository: any AdminUserRepository
+    ) {
         self.firestore = firestore
+        self.adminUserRepository = adminUserRepository
     }
 
     private var authorizedDevicesCollection: CollectionReference {
@@ -129,7 +135,16 @@ actor FirebaseAuthorizedDeviceRepository: AuthorizedDeviceRepository {
 
     func registerDeviceRemotely(deviceId: String, deviceName: String, userEmail: String) async {
         do {
-            let isAdmin = AppAuth.isAdminEmail(userEmail)
+            // v1.4: admin yetkisi Firestore `admin_users` koleksiyonundan gelir.
+            // `.unavailable` ise isAdmin YAZILMAZ (bkz. toFirestoreMap ve aşağıdaki önbellek notu).
+            let lookup = await adminUserRepository.lookupAdmin(email: userEmail)
+            let isAdmin: Bool?
+            switch lookup {
+            case .known(let value):
+                isAdmin = value
+            case .unavailable:
+                isAdmin = nil
+            }
             let now = nowISO8601String()
             let authorizedBy: String
             if userEmail.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -154,24 +169,36 @@ actor FirebaseAuthorizedDeviceRepository: AuthorizedDeviceRepository {
                 .setData(data, merge: true)
 
             lastUpdateCache[deviceId] = Date()
-            let entity = AuthorizedDevice(
-                deviceId: deviceId,
-                deviceName: deviceName,
-                authorizedAt: now,
-                authorizedBy: authorizedBy,
-                isPermanent: true,
-                sessionTimeoutMinutes: nil,
-                lastUsedAt: now,
-                isAdmin: isAdmin
-            )
-            evictCacheIfNeeded()
-            deviceCache[deviceId] = CachedDevice(
-                entity: entity,
-                expiresAt: Date().addingTimeInterval(Self.deviceCacheTTL)
-            )
+
+            if let isAdmin {
+                let entity = AuthorizedDevice(
+                    deviceId: deviceId,
+                    deviceName: deviceName,
+                    authorizedAt: now,
+                    authorizedBy: authorizedBy,
+                    isPermanent: true,
+                    sessionTimeoutMinutes: nil,
+                    lastUsedAt: now,
+                    isAdmin: isAdmin
+                )
+                evictCacheIfNeeded()
+                deviceCache[deviceId] = CachedDevice(
+                    entity: entity,
+                    expiresAt: Date().addingTimeInterval(Self.deviceCacheTTL)
+                )
+            } else {
+                // KRİTİK: admin durumu bilinmiyorken önbelleğe `isAdmin: false` yazmak,
+                // `MainDashboardView` hemen ardından `EventViewModel.checkAdminStatus()`
+                // çalıştırdığı için yöneticiyi 45 saniyelik önbellek penceresi boyunca —
+                // pratikte tüm oturum boyunca — yetkisiz bırakır.
+                // Bunun yerine önbelleği GEÇERSİZ KIL: sonraki okuma sunucudaki
+                // (veya Firestore çevrimdışı önbelleğindeki) son bilinen değeri getirir.
+                deviceCache.removeValue(forKey: deviceId)
+            }
 
             let emailPreview = String(userEmail.prefix(20))
-            Self.logger.debug("Device registered: \(deviceName, privacy: .public), isAdmin=\(isAdmin), email=\(emailPreview, privacy: .public)...")
+            let adminLog = isAdmin.map(String.init(describing:)) ?? "bilinmiyor"
+            Self.logger.debug("Device registered: \(deviceName, privacy: .public), isAdmin=\(adminLog, privacy: .public), email=\(emailPreview, privacy: .public)...")
         } catch {
             Self.logger.error("Remote device registration failed: \(error.localizedDescription, privacy: .public)")
         }
@@ -352,7 +379,7 @@ actor FirebaseAuthorizedDeviceRepository: AuthorizedDeviceRepository {
         authorizedBy: String,
         isPermanent: Bool,
         sessionTimeoutMinutes: Int64?,
-        isAdmin: Bool,
+        isAdmin: Bool?,
         authorizedAt: String,
         lastUsedAt: String?
     ) -> [String: Any] {
@@ -361,10 +388,16 @@ actor FirebaseAuthorizedDeviceRepository: AuthorizedDeviceRepository {
             "deviceName": deviceName ?? "",
             "authorizedBy": authorizedBy,
             "isPermanent": isPermanent,
-            "isAdmin": isAdmin,
             "authorizedAt": authorizedAt,
             "lastUsedAt": lastUsedAt ?? authorizedAt,
         ]
+        // `isAdmin` YALNIZCA güvenilir bir cevap varsa yazılır.
+        // `nil` (admin_users okunamadı) durumunda alan haritadan çıkarılır; `merge: true`
+        // sayesinde sunucudaki mevcut değer olduğu gibi korunur. Aksi halde geçici bir
+        // ağ hatası yöneticinin yetkisini kalıcı olarak düşürürdü.
+        if let isAdmin {
+            map["isAdmin"] = isAdmin
+        }
         if let sessionTimeoutMinutes {
             map["sessionTimeoutMinutes"] = sessionTimeoutMinutes
         }
