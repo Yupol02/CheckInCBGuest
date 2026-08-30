@@ -1,0 +1,221 @@
+// ============================================================================
+// CheckingCBGuest — Firestore Güvenlik Kuralları
+// ============================================================================
+//
+// Son güncelleme: 2026-08-30 (v1.4 — cihaz bağlama + Firestore admin listesi)
+//
+// v1.4 DEĞİŞİKLİKLERİ (bunun dışındaki her blok AYNEN korunmuştur):
+//
+//   1. isAdmin() artık koda gömülü e-posta listesi yerine `admin_users`
+//      koleksiyonunu okur. Yeni yönetici eklemek için App Store / Play Store
+//      güncellemesi gerekmez; Console'dan doküman eklemek yeterlidir.
+//      Fonksiyonun ADI ve çağrıldığı yerler değişmedi — events, guests,
+//      guests_secure ve authorized_devices blokları aynen çalışmaya devam eder.
+//
+//   2. device_bindings koleksiyonu eklendi: bir e-posta yalnızca tek bir cihaza
+//      bağlanabilir. Bağı yalnızca sahip (Console) silebilir.
+//
+//   3. admin_users koleksiyonu eklendi: istemci ASLA yazamaz.
+//
+// DİKKAT — YAYIN SIRASI: Bu dosyayı yayınlamadan ÖNCE her yönetici e-postası
+// için admin_users/<küçük-harfli-eposta> dokümanını { isAdmin: true } ile
+// oluşturun. Aksi halde yönetici cihazlar (iOS VE ANDROID) authorized_devices'a
+// yazamaz, kaydolamaz ve yönetici işlevleri kilitlenir.
+//
+// ⚠️  BU DOSYA REFERANS KOPYASIDIR — ASIL EV: GuestsBackend
+//
+// Kurallar GuestsBackend klasöründen deploy ediliyor. Buradaki kopya, iOS
+// değişiklikleriyle birlikte gözden geçirilebilsin diye eklendi. Yayınlamak için
+// içeriği GuestsBackend'deki gerçek firestore.rules dosyasına kopyalayın ve
+// oradan deploy edin. İki kopyayı senkron tutun; ayrışırlarsa GuestsBackend geçerlidir.
+//
+// Deploy: firebase deploy --only firestore:rules   (GuestsBackend klasöründen)
+// ============================================================================
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ==========================================================================
+    // YARDIMCI FONKSİYONLAR
+    // ==========================================================================
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    // Oturum açmış kullanıcının normalize edilmiş e-postası.
+    // NOT: rules'taki lower() locale'den BAĞIMSIZDIR. iOS istemcisi
+    // AppAuth.normalizedEmailKey() içinde en_US_POSIX ile küçültür; Türkçe
+    // locale'de "I" → "ı" olacağı için bu zorunludur, aksi halde doküman ID'si
+    // buradaki lower() ile eşleşmez ve her yazma reddedilirdi.
+    function normEmail() {
+      return request.auth.token.get('email', '').lower();
+    }
+
+    // v1.4: Yönetici listesi artık `admin_users` koleksiyonundadır.
+    //
+    // ÖNCEDEN: burada sabit bir e-posta dizisi vardı ve Android'deki
+    // AppConstants.kt ADMIN_EMAILS ile elle senkron tutulması gerekiyordu.
+    // Yönetici değiştirmek her iki platformda da yeni sürüm demekti.
+    //
+    // Yönetici eklemek : admin_users/<eposta> dokümanı, alan isAdmin = true
+    // Yönetici çıkarmak: dokümanı sil veya isAdmin = false yap
+    function isAdmin() {
+      return signedIn()
+          && exists(/databases/$(database)/documents/admin_users/$(normEmail()))
+          && get(/databases/$(database)/documents/admin_users/$(normEmail()))
+               .data.get('isAdmin', false) == true;
+    }
+
+    // Bu yazma, kaydı "silinmiş" duruma geçiriyor mu?
+    // Zaten silinmiş bir kaydın tekrar yazılması silme sayılmaz.
+    function marksDeleted() {
+      return request.resource.data.get('deleted', false) == true
+          && resource.data.get('deleted', false) != true;
+    }
+
+    // ==========================================================================
+    // ADMIN USERS - Yönetici E-posta Listesi   [v1.4 YENİ]
+    // ==========================================================================
+    // Doküman ID'si = küçük harfli e-posta, alan: isAdmin (boolean).
+    // İstemci ASLA yazamaz — yalnızca Console / Admin SDK.
+    //
+    // Okuma yalnızca kişinin KENDİ kaydıyla sınırlıdır (kimse başkasının
+    // yönetici olup olmadığını göremez). Yukarıdaki isAdmin() fonksiyonunun
+    // içindeki get()/exists() çağrıları kuralları atladığı için bu kısıt
+    // isAdmin()'i etkilemez.
+    match /admin_users/{emailId} {
+      allow read: if signedIn() && emailId == normEmail();
+      allow write: if false;
+    }
+
+    // ==========================================================================
+    // DEVICE BINDINGS - E-posta ↔ Cihaz Bağı   [v1.4 YENİ]
+    // ==========================================================================
+    // Bir e-posta = bir cihaz. Doküman ID'si küçük harfli e-postadır, böylece
+    // sahip Console'da dokümanı e-posta ile bulup silerek bağı sıfırlayabilir.
+    match /device_bindings/{emailId} {
+
+      allow read: if signedIn() && emailId == normEmail();
+
+      // İlk bağlama.
+      allow create: if signedIn()
+        && emailId == normEmail()
+        && request.resource.data.email == emailId
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.deviceId is string
+        && request.resource.data.deviceId.size() > 0;
+
+      // deviceId DEĞİŞTİRİLEMEZ — özelliğin bel kemiği budur.
+      // Pratikte yalnızca lastSeenAt güncellenebilir.
+      allow update: if signedIn()
+        && emailId == normEmail()
+        && request.resource.data.deviceId == resource.data.deviceId
+        && request.resource.data.uid == resource.data.uid
+        && request.resource.data.email == resource.data.email
+        && request.resource.data.boundAt == resource.data.boundAt;
+
+      // Bağı YALNIZCA sahip (Console) sıfırlayabilir.
+      allow delete: if false;
+    }
+
+    // ==========================================================================
+    // AUTHORIZED DEVICES - Cihaz Yetkilendirme
+    // ==========================================================================
+    // Herkes cihaz kaydını okuyabilir ve kendi kaydını yazabilir; ancak
+    // isAdmin=true yalnızca admin_users'da kayıtlı bir hesapla açılabilir.
+    // (Blok değişmedi; yalnızca isAdmin()'in kaynağı değişti.)
+    match /authorized_devices/{deviceId} {
+      allow read: if signedIn();
+      allow write: if signedIn()
+                   && (request.resource.data.get('isAdmin', false) != true || isAdmin());
+    }
+
+    // ==========================================================================
+    // EVENTS - Etkinlik Yönetimi
+    // ==========================================================================
+    // Oluşturma ve güncelleme herkese açık; SİLME yalnızca yöneticiye.
+    match /events/{eventId} {
+      allow read: if signedIn();
+      allow create: if signedIn();
+      allow update: if signedIn() && (!marksDeleted() || isAdmin());
+      allow delete: if isAdmin();
+    }
+
+    // ==========================================================================
+    // GUESTS - Genel Misafir Listesi (Public)
+    // ==========================================================================
+    // Giriş/çıkış, saat düzeltme, ünvan güncelleme vb. herkese açık.
+    // SİLME yalnızca yöneticiye.
+    match /events/{eventId}/guests/{guestId} {
+      allow read: if signedIn();
+      allow create: if signedIn();
+      allow update: if signedIn() && (!marksDeleted() || isAdmin());
+      allow delete: if isAdmin();
+    }
+
+    // ==========================================================================
+    // GUESTS_SECURE - Kırmızı Liste Misafirleri
+    // ==========================================================================
+    // Onay bekleyen kayıtlar. /guests ile AYNI silme modeli uygulanır:
+    // oluşturma ve normal güncelleme herkese açık (misafir ekleyen görevlinin
+    // kırmızı listeye takılan kaydı buraya düşer), silme yalnızca yöneticiye.
+    match /events/{eventId}/guests_secure/{guestId} {
+      allow read: if signedIn();
+      allow create: if signedIn();
+      allow update: if signedIn() && (!marksDeleted() || isAdmin());
+      allow delete: if isAdmin();
+    }
+
+    // ==========================================================================
+    // RED LIST - Kırmızı Liste Koleksiyonu (eski)
+    // ==========================================================================
+    match /red_list/{docId} {
+      allow read: if signedIn();
+      allow write: if signedIn();
+    }
+
+    // ==========================================================================
+    // ADMIN RED LIST NAMES - Merkezi Kırmızı Liste İsimleri
+    // ==========================================================================
+    match /admin_red_list_names/{docId} {
+      allow read, write: if signedIn();
+    }
+
+    // ==========================================================================
+    // ADMIN NOTIFICATIONS - Bildirim Tetikleyici (Cloud Function için)
+    // ==========================================================================
+    // Kullanıcılar bildirim isteği oluşturabilir.
+    // Okuma/silme yalnızca Cloud Function'a aittir (Admin SDK kuralları atlar).
+    match /admin_notifications/{notificationId} {
+      allow create: if signedIn();
+      allow read, write, delete: if false;
+    }
+
+    // ==========================================================================
+    // ADMINS - Admin Kullanıcılar (eski/kullanılmıyor)
+    // ==========================================================================
+    // NOT: Bu koleksiyon v1.4'ün admin_users'ı ile KARIŞTIRILMAMALIDIR.
+    // Yetki kaynağı admin_users'tır; burası eski bir kalıntıdır.
+    match /admins/{userId} {
+      allow read: if signedIn();
+      allow write: if signedIn();
+    }
+
+    // ==========================================================================
+    // PERMISSION REQUESTS - İzin İstekleri
+    // ==========================================================================
+    match /permission_requests/{requestId} {
+      allow read, write: if signedIn();
+    }
+
+    // ==========================================================================
+    // DEFAULT DENY - EN SONDA OLMALI
+    // ==========================================================================
+    // Yukarıdaki kurallardan hiçbiri eşleşmezse erişim reddedilir.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

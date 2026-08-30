@@ -1,11 +1,12 @@
 import SwiftUI
 
 /// Kurumsal giriş ekranı (Android `LoginScreen`).
+///
+/// v1.4: Kayıt olma girişi kaldırıldı — hesaplar yalnızca Firebase Console'dan açılır.
 @MainActor
 struct LoginView: View {
 
     @Environment(AuthViewModel.self) private var authViewModel
-    var onNavigateToSignUp: (() -> Void)? = nil
 
     @State private var email = ""
     @State private var password = ""
@@ -42,9 +43,6 @@ struct LoginView: View {
                     headerSection
                     formSection
                     loginButton
-                    if AppAuth.publicRegistrationEnabled, onNavigateToSignUp != nil {
-                        signUpEntryButton
-                    }
                 }
                 .padding(.horizontal, 24)
                 .padding(.vertical, 40)
@@ -61,7 +59,11 @@ struct LoginView: View {
         }
         .animation(.easeInOut(duration: 0.25), value: showErrorBanner)
         .animation(.easeInOut(duration: 0.2), value: isLoading)
-        .onChange(of: authViewModel.loginUiState) { _, newState in
+        // `initial: true` KRİTİK: cihaz bağlama reddinde hata, bu ekran görünür
+        // DEĞİLKEN set edilir (rota o sırada .loading). RootView sonra .login'e
+        // yönlendirip YENİ bir LoginView kurar; `initial` olmadan .onChange önceden
+        // set edilmiş değer için ateşlemez ve kullanıcı hiçbir açıklama görmez.
+        .onChange(of: authViewModel.loginUiState, initial: true) { _, newState in
             handleLoginUiStateChange(newState)
         }
     }
@@ -192,27 +194,6 @@ struct LoginView: View {
         .accessibilityHint("E-posta ve şifre ile oturum açar")
     }
 
-    private var signUpEntryButton: some View {
-        Button {
-            authViewModel.clearLoginError()
-            onNavigateToSignUp?()
-        } label: {
-            Text("Hesap Oluştur / Kayıt Ol")
-                .font(.headline)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 16)
-                .foregroundStyle(LoginPalette.accent)
-                .background(LoginPalette.cardBackground)
-                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .stroke(LoginPalette.accent, lineWidth: 2)
-                )
-        }
-        .buttonStyle(.plain)
-        .disabled(isLoading)
-        .accessibilityHint("Yeni hesap oluşturma sayfasını açar")
-    }
 
     private var loadingOverlay: some View {
         Color.black.opacity(0.12)

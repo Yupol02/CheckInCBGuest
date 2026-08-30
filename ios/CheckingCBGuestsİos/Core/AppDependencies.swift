@@ -7,8 +7,20 @@ import Foundation
 /// I/O'da güvenle kullanılabilir.
 enum RepositoryContainer {
 
+    /// Admin e-posta listesi (Firestore `admin_users`).
+    /// `authorizedDeviceRepository`'den ÖNCE tanımlıdır; `static let` tembel
+    /// başlatması sırayı kendiliğinden çözer, provider closure'a gerek yoktur.
+    static let adminUserRepository: any AdminUserRepository =
+        FirebaseAdminUserRepository()
+
     static let authorizedDeviceRepository: any AuthorizedDeviceRepository =
-        FirebaseAuthorizedDeviceRepository()
+        FirebaseAuthorizedDeviceRepository(
+            adminUserRepository: RepositoryContainer.adminUserRepository
+        )
+
+    /// E-posta ↔ cihaz bağlama (Firestore `device_bindings`).
+    static let deviceBindingRepository: any DeviceBindingRepository =
+        FirebaseDeviceBindingRepository()
 
     static let eventRepository: any EventRepository = FirebaseEventRepository(
         redListRepositoryProvider: { RepositoryContainer.redListRepository }
@@ -33,7 +45,8 @@ enum AppDependencies {
 
     static let authViewModel = AuthViewModel(
         authRepository: FirebaseAuthRepository(),
-        authorizedDeviceRepository: RepositoryContainer.authorizedDeviceRepository
+        authorizedDeviceRepository: RepositoryContainer.authorizedDeviceRepository,
+        deviceBindingRepository: RepositoryContainer.deviceBindingRepository
     )
 
     /// CRUD sonrası otomatik senkronizasyon yöneticisi (uygulama geneli tekil).
