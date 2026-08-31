@@ -1,4 +1,4 @@
-# v1.4 Geçiş Kılavuzu
+# v1.5 Geçiş Kılavuzu
 
 Kayıt kapatma + "1 e-posta = 1 cihaz" + Firestore admin listesi geçişi.
 
@@ -11,13 +11,13 @@ Kayıt kapatma + "1 e-posta = 1 cihaz" + Firestore admin listesi geçişi.
 ## Neden bu sıra?
 
 İlk düşünülen sıra — *hesapları sil → cihazları temizle → yeni hesaplar →
-admin_users → kurallar → 1.4 gönder* — iki yerde kırılıyor:
+admin_users → kurallar → 1.5 gönder* — iki yerde kırılıyor:
 
-1. **1.4 en sona bırakılırsa filo ortada kalır.** Eski Auth hesapları silinince
+1. **1.5 en sona bırakılırsa filo ortada kalır.** Eski Auth hesapları silinince
    refresh token'lar geçersizleşir; tüm 1.3 istemcileri ~1 saat içinde çıkış
-   yapar ve geri giremez. 1.4 o anda hâlâ *incelemedeyse* uygulama App Review
+   yapar ve geri giremez. 1.5 o anda hâlâ *incelemedeyse* uygulama App Review
    boyunca (1-3+ gün, red gelirse daha uzun) tamamen kullanılamaz.
-   → **1.4 App Store'da yayında olmalı, sonra hesaplara dokunulmalı.**
+   → **1.5 App Store'da yayında olmalı, sonra hesaplara dokunulmalı.**
 
 2. **admin_users dokümanları oluşmadan kural yayınlanırsa yöneticiler kilitlenir.**
    Yeni `isAdmin()` bu koleksiyonu okur; doküman yoksa yönetici cihazın
@@ -34,7 +34,7 @@ admin_users → kurallar → 1.4 gönder* — iki yerde kırılıyor:
 - [ ] Yeni hesap listesini hazırla: hangi e-posta kime, hangileri yönetici
 - [ ] **1.2/1.3 uyuşmazlığını çöz:** proje dosyası 1.2 diyordu ama yayında 1.3
       vardı. 1.3'ü üreten kopyayı bu depoyla karşılaştır — burada olmayan
-      yayınlanmış değişiklikler varsa 1.4 onları geri alır
+      yayınlanmış değişiklikler varsa 1.5 onları geri alır
 
 ## Aşama 1 — Firestore hazırlığı (1.3 ve Android yayındayken güvenli)
 
@@ -43,7 +43,7 @@ admin_users → kurallar → 1.4 gönder* — iki yerde kırılıyor:
         hâlâ kullanılıyorsa **onları da ekle**
       - **Birazdan oluşturacağın yeni yönetici hesaplarını da ekle**
       - E-posta küçük harf, baş/son boşluksuz olmalı
-- [ ] `Firebase/firestore.rules` dosyasını yayınla
+- [ ] `Firebase/firestore.rules` dosyasını yayınla *(zaten yayınlandıysa tekrar gerekmez — kural içeriği 1.5'te değişmedi)*
       (`firebase deploy --only firestore:rules`)
 - [ ] Rules Playground ile doğrula:
       - ✅ İzin: mevcut yönetici cihazın `lastUsedAt` merge yazımı
@@ -56,9 +56,10 @@ admin_users → kurallar → 1.4 gönder* — iki yerde kırılıyor:
 > `admin_users`'a hiç dokunmazlar, `isAdmin()` ise artık admin_users'tan
 > okunduğu için eski yöneticiler (dokümanları oluşturulduysa) çalışmaya devam eder.
 
-## Aşama 2 — 1.4'ü yayınla
+## Aşama 2 — 1.5'ü yayınla
 
-- [ ] Arşivle ve App Store Connect'e yükle (sürüm 1.4, build 140)
+- [ ] Arşivle ve App Store Connect'e yükle (sürüm 1.5)
+      - Build numarasını CI otomatik verir (`github.run_number`); elle ayarlamayın
       - **Yüklemeden önce** App Store Connect → Activity → All Builds'ten 1.3'ün
         gerçek build numarasını doğrula; 140 ondan büyük olmalı
 - [ ] TestFlight: en az bir gerçek cihaz + en az bir yönetici hesabıyla dene
@@ -79,7 +80,7 @@ admin_users → kurallar → 1.4 gönder* — iki yerde kırılıyor:
 
 ## Aşama 4 — Geçiş penceresi (etkinlik olmayan bir zaman)
 
-- [ ] Duyuru: herkes 1.4'e (ve Android kullanıcıları yeni sürüme) güncellesin,
+- [ ] Duyuru: herkes 1.5'e (ve Android kullanıcıları yeni sürüme) güncellesin,
       **internete bağlıyken** bir kez giriş yapsın
 - [ ] Yeni Auth hesaplarını oluştur — **eskileri silmeden** (kendini kilitlememek için)
 - [ ] Eski Auth hesaplarını sil → tüm 1.3 oturumları ~1 saat içinde kapanır
@@ -89,6 +90,47 @@ admin_users → kurallar → 1.4 gönder* — iki yerde kırılıyor:
 - [ ] Her kullanıcı için doğrula:
       - `device_bindings/<eposta>` oluştu mu, `deviceId` dolu mu
       - `authorized_devices/<hash>.isAdmin` doğru mu
+
+---
+
+## Koleksiyonlar ne işe yarıyor
+
+| Koleksiyon | Kim yazar | Siz ne yaparsınız |
+|---|---|---|
+| `authorized_devices` | Uygulama | Hiçbir şey — kendiliğinden yönetilir |
+| `device_bindings` | Uygulama | Cihaz değişiminde dokümanı **silersiniz** |
+| `admin_users` | **Yalnızca siz** | Yönetici ekler/çıkarırsınız |
+
+Uygulamanın yazdığı iki koleksiyona elle müdahale etmeniz gerekmez.
+Sizin yönettiğiniz tek yer `admin_users`.
+
+---
+
+## Birini yönetici yapmak (adım adım)
+
+1. Firebase Console → **Firestore Database**
+2. `admin_users` koleksiyonu yoksa **Start collection** → ID: `admin_users`
+3. **Add document**
+4. **Document ID** kutusuna kişinin e-postasını **küçük harfle** yazın —
+   örn. `ahmet@checkin.com`
+   *(Auto-ID butonuna basmayın; ID e-postanın kendisi olmalı)*
+5. **Add field** → Field: `isAdmin` — Type: **boolean** — Value: **true**
+6. **Save**
+7. Kişi uygulamadan **çıkıp tekrar giriş yapsın** (yetki giriş anında okunur)
+
+**Yönetici yetkisini almak:** aynı dokümanı silin veya `isAdmin` değerini
+`false` yapın; kişi tekrar giriş yaptığında yetkisi kalkar.
+
+> Bu doküman kişi hiç giriş yapmamışken de oluşturulabilir — ilk girişinde
+> doğrudan yönetici olarak başlar.
+
+### Neden cihaz dokümanına değil de buraya?
+
+v1.3'te `authorized_devices` içindeki `isAdmin` alanını elle `true` yapmak
+kalıcı DEĞİLDİ: uygulama her girişte bu alanı koda gömülü e-posta listesine
+göre yeniden yazıyor, listede olmayan hesabın yetkisini sessizce `false`
+yapıyordu. v1.5'te bu alan artık `admin_users`'tan besleniyor ve
+`admin_users` okunamazsa hiç yazılmıyor — yani yetki kazara düşmüyor.
 
 ---
 

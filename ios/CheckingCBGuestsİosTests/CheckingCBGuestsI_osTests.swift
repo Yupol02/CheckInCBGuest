@@ -92,4 +92,69 @@ final class CheckingCBGuestsI_osTests: XCTestCase {
         XCTAssertNil(DeviceBinding.from(documentId: "a@b.com", data: ["deviceId": ""]))
         XCTAssertNil(DeviceBinding.from(documentId: "a@b.com", data: [:]))
     }
+
+    // MARK: - Arama sırasında sıra numarası (regresyon)
+
+    private func makeGuest(_ name: String, time: String, section: String? = nil) -> Guest {
+        Guest(
+            id: "id-\(name)",
+            eventId: "event-1",
+            name: name,
+            title: "Ünvan",
+            arrivalMethod: .pedestrian,
+            expectedTime: time,
+            sectionTitle: section
+        )
+    }
+
+    /// 20 kişilik listede 14. sıradaki kişi, arama sonucunda TEK BAŞINA
+    /// gösterildiğinde de 14 kalmalıdır.
+    ///
+    /// Hata: numara gösterilen dizi üzerinden hesaplandığı için arama yapınca
+    /// 1'e düşüyordu.
+    func testOrderNumberStaysStableWhenFiltered() throws {
+        let all = (1...20).map { makeGuest(String(format: "Kisi%02d", $0), time: String(format: "%02d:00", $0 % 24)) }
+
+        let fullItems = GuestListGrouping.build(from: all)
+        let target = try XCTUnwrap(all.first { $0.name == "Kisi14" })
+        let fullNumber = try XCTUnwrap(orderNumber(of: target, in: fullItems))
+        XCTAssertEqual(fullNumber, 14, "Senaryo kurulumu bozulmuş: hedef kişi listede 14. olmalı")
+
+        // Arama: yalnızca hedef kişi görünür, numaralandırma temeli TAM liste
+        let filteredItems = GuestListGrouping.build(from: [target], orderBasis: all)
+        let filteredNumber = try XCTUnwrap(orderNumber(of: target, in: filteredItems))
+
+        XCTAssertEqual(filteredNumber, fullNumber,
+            "Arama sonucunda sıra numarası değişti (listede \(fullNumber), aramada \(filteredNumber))")
+    }
+
+    /// orderBasis verilmezse eski davranış korunur (geriye dönük uyumluluk).
+    func testOrderNumberFallsBackToShownListWhenNoBasis() throws {
+        let all = (1...5).map { makeGuest("Kisi\($0)", time: "0\($0):00") }
+        let items = GuestListGrouping.build(from: [all[3]])
+        XCTAssertEqual(orderNumber(of: all[3], in: items), 1)
+    }
+
+    /// Eşit saatli misafirlerde numaralandırma belirlenimci olmalı:
+    /// girdi sırası değişse de aynı kişi aynı numarayı almalı.
+    func testOrderNumberIsDeterministicForEqualTimes() throws {
+        let a = makeGuest("Ahmet", time: "09:00")
+        let b = makeGuest("Berk", time: "09:00")
+        let c = makeGuest("Cem", time: "09:00")
+
+        let first = GuestListGrouping.build(from: [a, b, c], orderBasis: [a, b, c])
+        let shuffled = GuestListGrouping.build(from: [a, b, c], orderBasis: [c, a, b])
+
+        for guest in [a, b, c] {
+            XCTAssertEqual(orderNumber(of: guest, in: first), orderNumber(of: guest, in: shuffled),
+                "\(guest.name) için numara girdi sırasına göre değişti")
+        }
+    }
+
+    private func orderNumber(of guest: Guest, in items: [GuestListUiItem]) -> Int? {
+        for item in items {
+            if case .guest(let g, let ctx) = item, g.id == guest.id { return ctx.orderNumber }
+        }
+        return nil
+    }
 }
