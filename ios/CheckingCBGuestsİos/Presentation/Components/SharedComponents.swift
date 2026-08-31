@@ -154,13 +154,37 @@ enum GuestListGrouping {
         return hours * 60 + minutes
     }
 
-    static func build(from guests: [Guest]) -> [GuestListUiItem] {
-        let orderMap = Dictionary(
-            uniqueKeysWithValues: guests
-                .sorted { parseExpectedTimeToMinutes($0.expectedTime) < parseExpectedTimeToMinutes($1.expectedTime) }
-                .enumerated()
-                .map { (offset, guest) in (guest.id, offset + 1) }
+    /// Misafir listesini bölüm/saat başlıklarıyla birlikte kurar.
+    ///
+    /// - Parameters:
+    ///   - guests: Ekranda GÖSTERİLECEK misafirler (arama/filtre uygulanmış olabilir).
+    ///   - orderBasis: Sıra numaralarının hesaplanacağı TAM liste. `nil` ise `guests`
+    ///     kullanılır.
+    ///
+    /// `orderBasis` ayrı bir parametre olmak zorunda: numara daha önce gösterilen
+    /// dizi üzerinden hesaplanıyordu, bu yüzden arama yapıldığında listede 14 olan
+    /// kişi sonuçlarda 1 görünüyordu. Numara artık filtreden bağımsızdır.
+    /// Sıra numaralarını üretir. Sıralama saate göredir (mevcut davranış korundu).
+    ///
+    /// Eşit saatli misafirler için isim ve id ile belirlenimci bir eşitlik bozucu
+    /// eklendi: `sorted(by:)` Swift'te kararlı (stable) DEĞİLDİR, dolayısıyla
+    /// eşitlikte numaralar render'lar arasında yer değiştirebiliyordu.
+    private static func makeOrderMap(from guests: [Guest]) -> [String: Int] {
+        let ordered = guests.sorted { lhs, rhs in
+            let lhsTime = parseExpectedTimeToMinutes(lhs.expectedTime)
+            let rhsTime = parseExpectedTimeToMinutes(rhs.expectedTime)
+            if lhsTime != rhsTime { return lhsTime < rhsTime }
+            let byName = lhs.name.localizedCompare(rhs.name)
+            if byName != .orderedSame { return byName == .orderedAscending }
+            return lhs.id < rhs.id
+        }
+        return Dictionary(
+            uniqueKeysWithValues: ordered.enumerated().map { (offset, guest) in (guest.id, offset + 1) }
         )
+    }
+
+    static func build(from guests: [Guest], orderBasis: [Guest]? = nil) -> [GuestListUiItem] {
+        let orderMap = makeOrderMap(from: orderBasis ?? guests)
 
         let bySection = Dictionary(grouping: guests) { guest -> String in
             let trimmed = guest.sectionTitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""

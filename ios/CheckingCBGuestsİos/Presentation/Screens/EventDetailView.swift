@@ -42,7 +42,9 @@ struct EventDetailView: View {
     }
 
     private var groupedListItems: [GuestListUiItem] {
-        GuestListGrouping.build(from: visibleGuests)
+        // Sıra numarası TAM listeden (`eventGuests`) hesaplanır; arama veya filtre
+        // sekmesi numarayı değiştirmez.
+        GuestListGrouping.build(from: visibleGuests, orderBasis: eventGuests)
     }
 
     private var existingSectionTitles: [String] {
