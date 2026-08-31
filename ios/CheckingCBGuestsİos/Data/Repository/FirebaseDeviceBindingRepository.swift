@@ -54,13 +54,11 @@ actor FirebaseDeviceBindingRepository: DeviceBindingRepository {
                         return nil
                     }
 
-                    // Bağ yok → bu cihaza bağla.
-                    guard snapshot.exists,
-                          let data = snapshot.data(),
-                          let existingDeviceId = (data["deviceId"] as? String)?
-                              .trimmingCharacters(in: .whitespacesAndNewlines),
-                          !existingDeviceId.isEmpty
-                    else {
+                    // Karar mantığı Firestore'dan ayrı, saf bir fonksiyonda:
+                    // birim testleriyle doğrulanabilsin diye.
+                    switch Self.decide(existing: snapshot.exists ? snapshot.data() : nil,
+                                       currentDeviceId: deviceId) {
+                    case .bind:
                         let binding = DeviceBinding(
                             email: key,
                             uid: uid,
@@ -71,24 +69,28 @@ actor FirebaseDeviceBindingRepository: DeviceBindingRepository {
                         )
                         transaction.setData(binding.toFirestoreMap(), forDocument: reference)
                         return ["outcome": "bound"]
-                    }
 
-                    // Bağ bu cihaza ait → yalnızca lastSeenAt tazele.
-                    if existingDeviceId == deviceId {
+                    case .match:
                         transaction.setData(
                             ["lastSeenAt": now],
                             forDocument: reference,
                             merge: true
                         )
                         return ["outcome": "matched"]
-                    }
 
-                    // Başka cihaza bağlı → hiçbir şey yazma, reddet.
-                    // Yazma yapmayan bir transaction no-op olarak commit olur.
-                    return [
-                        "outcome": "rejected",
-                        "deviceName": (data["deviceName"] as? String) ?? "",
-                    ]
+                    case .exempt:
+                        // Muaf hesap: hiçbir şey YAZMA. Yazmak, farklı cihazlardan
+                        // gelen eşzamanlı girişlerin birbirinin lastSeenAt'ini
+                        // ezmesine ve gereksiz kural yüzeyine yol açardı.
+                        return ["outcome": "matched"]
+
+                    case .reject(let boundDeviceName):
+                        // Yazma yapmayan bir transaction no-op olarak commit olur.
+                        return [
+                            "outcome": "rejected",
+                            "deviceName": boundDeviceName ?? "",
+                        ]
+                    }
                 }
                 return Self.mapTransactionOutcome(raw)
             }
@@ -126,9 +128,12 @@ actor FirebaseDeviceBindingRepository: DeviceBindingRepository {
                     return .networkRequired
                 }
 
-                return binding.deviceId == deviceId
-                    ? .matched
-                    : .rejected(boundDeviceName: binding.deviceName)
+                switch Self.decide(existing: data, currentDeviceId: deviceId) {
+                case .bind, .match, .exempt:
+                    return .matched
+                case .reject(let boundDeviceName):
+                    return .rejected(boundDeviceName: boundDeviceName ?? binding.deviceName)
+                }
             }
         } catch {
             return Self.classify(error)
@@ -136,6 +141,54 @@ actor FirebaseDeviceBindingRepository: DeviceBindingRepository {
     }
 
     // MARK: - Yardımcılar
+
+    /// Cihaz bağlama kararı. Firestore'dan bağımsız, saf fonksiyon (test edilebilir).
+    enum BindingDecision: Equatable {
+        /// Bağ yok → bu cihaza bağla.
+        case bind
+        /// Bağ bu cihaza ait.
+        case match
+        /// Hesap cihaz kısıtından muaf (`allowMultipleDevices: true`).
+        case exempt
+        /// Başka cihaza bağlı.
+        case reject(boundDeviceName: String?)
+    }
+
+    /// - Parameters:
+    ///   - existing: Firestore'daki mevcut doküman verisi; doküman yoksa `nil`.
+    ///   - currentDeviceId: Bu cihazın kimliği.
+    ///
+    /// `allowMultipleDevices` alanı YALNIZCA Firebase Console'dan açılabilir
+    /// (güvenlik kuralı istemcinin yazmasını engeller). Amacı App Store inceleme
+    /// demo hesabıdır: incelemeci hem iPhone hem iPad'de test edebilsin diye.
+    /// Onay sonrası Console'dan kapatın — yeni sürüm gerekmez.
+    static func decide(existing: [String: Any]?, currentDeviceId: String) -> BindingDecision {
+        guard let existing else { return .bind }
+
+        if parseBool(existing["allowMultipleDevices"]) {
+            return .exempt
+        }
+
+        let boundDeviceId = (existing["deviceId"] as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !boundDeviceId.isEmpty else { return .bind }
+
+        if boundDeviceId == currentDeviceId { return .match }
+
+        let name = (existing["deviceName"] as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return .reject(boundDeviceName: name?.isEmpty == false ? name : nil)
+    }
+
+    /// Console'dan elle girilen alanlar `Bool` yerine string olabilir.
+    private static func parseBool(_ value: Any?) -> Bool {
+        if let flag = value as? Bool { return flag }
+        if let number = value as? NSNumber { return number.boolValue }
+        if let text = value as? String {
+            return text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "true"
+        }
+        return false
+    }
 
     private static func mapTransactionOutcome(_ raw: Any?) -> DeviceBindingResult {
         guard let map = raw as? [String: Any],

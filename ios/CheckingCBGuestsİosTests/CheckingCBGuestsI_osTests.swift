@@ -157,4 +157,66 @@ final class CheckingCBGuestsI_osTests: XCTestCase {
         }
         return nil
     }
+
+    // MARK: - Cihaz bağlama kararı
+
+    private typealias Decision = FirebaseDeviceBindingRepository.BindingDecision
+
+    func testDecideBindsWhenNoDocument() {
+        XCTAssertEqual(FirebaseDeviceBindingRepository.decide(existing: nil, currentDeviceId: "dev-1"), .bind)
+    }
+
+    func testDecideBindsWhenDeviceIdMissingOrEmpty() {
+        XCTAssertEqual(FirebaseDeviceBindingRepository.decide(existing: [:], currentDeviceId: "dev-1"), .bind)
+        XCTAssertEqual(FirebaseDeviceBindingRepository.decide(existing: ["deviceId": "  "], currentDeviceId: "dev-1"), .bind)
+    }
+
+    func testDecideMatchesSameDevice() {
+        XCTAssertEqual(
+            FirebaseDeviceBindingRepository.decide(existing: ["deviceId": "dev-1"], currentDeviceId: "dev-1"),
+            .match
+        )
+    }
+
+    func testDecideRejectsOtherDeviceAndReportsItsName() {
+        let decision = FirebaseDeviceBindingRepository.decide(
+            existing: ["deviceId": "dev-OTHER", "deviceName": "A1B2C3D4"],
+            currentDeviceId: "dev-1"
+        )
+        XCTAssertEqual(decision, .reject(boundDeviceName: "A1B2C3D4"))
+    }
+
+    /// App Store inceleme demo hesabı: Console'dan allowMultipleDevices açılınca
+    /// BAŞKA cihazdan giriş de kabul edilmeli.
+    func testDecideExemptsWhenAllowMultipleDevicesIsTrue() {
+        XCTAssertEqual(
+            FirebaseDeviceBindingRepository.decide(
+                existing: ["deviceId": "dev-OTHER", "allowMultipleDevices": true],
+                currentDeviceId: "dev-1"
+            ),
+            .exempt
+        )
+    }
+
+    /// Console'dan elle girilen alan string olabilir; "true" da kabul edilmeli.
+    func testDecideExemptionAcceptsStringTrue() {
+        XCTAssertEqual(
+            FirebaseDeviceBindingRepository.decide(
+                existing: ["deviceId": "dev-OTHER", "allowMultipleDevices": "true"],
+                currentDeviceId: "dev-1"
+            ),
+            .exempt
+        )
+    }
+
+    /// Muafiyet kapalıyken (false / eksik / bozuk değer) kısıt uygulanmalı.
+    func testDecideDoesNotExemptWhenFlagIsFalseOrInvalid() {
+        for value: Any in [false, "false", "evet", 0] {
+            let decision = FirebaseDeviceBindingRepository.decide(
+                existing: ["deviceId": "dev-OTHER", "allowMultipleDevices": value],
+                currentDeviceId: "dev-1"
+            )
+            XCTAssertEqual(decision, .reject(boundDeviceName: nil), "değer: \(value)")
+        }
+    }
 }

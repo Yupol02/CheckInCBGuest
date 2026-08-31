@@ -105,7 +105,9 @@ service cloud.firestore {
         && request.resource.data.email == emailId
         && request.resource.data.uid == request.auth.uid
         && request.resource.data.deviceId is string
-        && request.resource.data.deviceId.size() > 0;
+        && request.resource.data.deviceId.size() > 0
+        // Muafiyet bayrağını istemci AÇAMAZ — yalnızca Console.
+        && request.resource.data.get('allowMultipleDevices', false) == false;
 
       // deviceId DEĞİŞTİRİLEMEZ — özelliğin bel kemiği budur.
       // Pratikte yalnızca lastSeenAt güncellenebilir.
@@ -114,10 +116,19 @@ service cloud.firestore {
         && request.resource.data.deviceId == resource.data.deviceId
         && request.resource.data.uid == resource.data.uid
         && request.resource.data.email == resource.data.email
-        && request.resource.data.boundAt == resource.data.boundAt;
+        && request.resource.data.boundAt == resource.data.boundAt
+        // Muafiyet bayrağı istemci tarafından DEĞİŞTİRİLEMEZ.
+        && request.resource.data.get('allowMultipleDevices', false)
+           == resource.data.get('allowMultipleDevices', false);
 
       // Bağı YALNIZCA sahip (Console) sıfırlayabilir.
       allow delete: if false;
+
+      // MUAFİYET (allowMultipleDevices: true)
+      // Bu alanı true yapılan hesap cihaz kısıtından muaf olur; birden fazla
+      // cihazdan giriş yapabilir. Kullanım amacı App Store inceleme demo
+      // hesabıdır (incelemeci hem iPhone hem iPad'de test edebilsin).
+      // Yalnızca Console'dan açılıp kapatılır; onay sonrası KAPATIN.
     }
 
     // ==========================================================================
