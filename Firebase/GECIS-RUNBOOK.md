@@ -92,6 +92,47 @@ admin_users → kurallar → 1.4 gönder* — iki yerde kırılıyor:
 
 ---
 
+## Koleksiyonlar ne işe yarıyor
+
+| Koleksiyon | Kim yazar | Siz ne yaparsınız |
+|---|---|---|
+| `authorized_devices` | Uygulama | Hiçbir şey — kendiliğinden yönetilir |
+| `device_bindings` | Uygulama | Cihaz değişiminde dokümanı **silersiniz** |
+| `admin_users` | **Yalnızca siz** | Yönetici ekler/çıkarırsınız |
+
+Uygulamanın yazdığı iki koleksiyona elle müdahale etmeniz gerekmez.
+Sizin yönettiğiniz tek yer `admin_users`.
+
+---
+
+## Birini yönetici yapmak (adım adım)
+
+1. Firebase Console → **Firestore Database**
+2. `admin_users` koleksiyonu yoksa **Start collection** → ID: `admin_users`
+3. **Add document**
+4. **Document ID** kutusuna kişinin e-postasını **küçük harfle** yazın —
+   örn. `ahmet@checkin.com`
+   *(Auto-ID butonuna basmayın; ID e-postanın kendisi olmalı)*
+5. **Add field** → Field: `isAdmin` — Type: **boolean** — Value: **true**
+6. **Save**
+7. Kişi uygulamadan **çıkıp tekrar giriş yapsın** (yetki giriş anında okunur)
+
+**Yönetici yetkisini almak:** aynı dokümanı silin veya `isAdmin` değerini
+`false` yapın; kişi tekrar giriş yaptığında yetkisi kalkar.
+
+> Bu doküman kişi hiç giriş yapmamışken de oluşturulabilir — ilk girişinde
+> doğrudan yönetici olarak başlar.
+
+### Neden cihaz dokümanına değil de buraya?
+
+v1.3'te `authorized_devices` içindeki `isAdmin` alanını elle `true` yapmak
+kalıcı DEĞİLDİ: uygulama her girişte bu alanı koda gömülü e-posta listesine
+göre yeniden yazıyor, listede olmayan hesabın yetkisini sessizce `false`
+yapıyordu. v1.4'te bu alan artık `admin_users`'tan besleniyor ve
+`admin_users` okunamazsa hiç yazılmıyor — yani yetki kazara düşmüyor.
+
+---
+
 ## Günlük işlemler (geçişten sonra)
 
 | İhtiyaç | Yapılacak |
