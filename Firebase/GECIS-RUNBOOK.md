@@ -43,7 +43,9 @@ admin_users → kurallar → 1.5 gönder* — iki yerde kırılıyor:
         hâlâ kullanılıyorsa **onları da ekle**
       - **Birazdan oluşturacağın yeni yönetici hesaplarını da ekle**
       - E-posta küçük harf, baş/son boşluksuz olmalı
-- [ ] `Firebase/firestore.rules` dosyasını yayınla *(zaten yayınlandıysa tekrar gerekmez — kural içeriği 1.5'te değişmedi)*
+- [ ] `Firebase/firestore.rules` içeriğini Firebase Console → Firestore Database →
+      Rules sekmesine yapıştırıp **Publish** edin
+      *(CLI ile deploy edilemez: GuestsBackend/firebase.json'da rules tanımlı değil)*
       (`firebase deploy --only firestore:rules`)
 - [ ] Rules Playground ile doğrula:
       - ✅ İzin: mevcut yönetici cihazın `lastUsedAt` merge yazımı
