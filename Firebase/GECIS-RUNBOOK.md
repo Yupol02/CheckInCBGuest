@@ -93,6 +93,43 @@ admin_users → kurallar → 1.5 gönder* — iki yerde kırılıyor:
 
 ---
 
+## App Store incelemesi için demo hesap
+
+Kayıt ekranı kaldırıldığı için **incelemeci kendi hesabını oluşturamaz**.
+App Store Connect'te demo hesap vermezseniz Guideline 2.1 ile reddedilirsiniz.
+
+Ayrıca demo hesap da cihaza bağlanır: uygulama hem iPhone hem iPad'i
+desteklediği için incelemeci ikinci cihazda *"başka bir cihaza tanımlı"*
+hatası alabilir — yani kendi korumamız incelemeyi reddettirir.
+
+### Gönderimden önce
+
+1. Firebase Console → Authentication → demo hesabı oluşturun
+   (örn. `appreview@checkin.com`)
+2. Firestore → `device_bindings` → **Add document**
+   - Document ID: `appreview@checkin.com`
+   - `email` (string): `appreview@checkin.com`
+   - `uid` (string): boş bırakabilirsiniz
+   - `deviceId` (string): `exempt`
+   - `allowMultipleDevices` (**boolean**): `true`
+3. App Store Connect → App Review Information → Sign-In Required işaretli,
+   kullanıcı adı ve şifreyi girin
+4. Notes alanına ekleyin:
+   *"Uygulama etkinlik güvenlik personeli içindir; hesaplar organizatör
+   tarafından oluşturulur, self-servis kayıt yoktur. Verilen demo hesap
+   birden fazla cihazda kullanılabilir."*
+
+### Onay alındıktan sonra
+
+`device_bindings/appreview@checkin.com` dokümanındaki
+`allowMultipleDevices` alanını **false** yapın veya dokümanı silin.
+Muafiyeti kapatmak için yeni sürüm gerekmez.
+
+> Muafiyet bayrağını yalnızca Console açabilir; güvenlik kuralı istemcinin
+> bu alanı yazmasını veya değiştirmesini engeller.
+
+---
+
 ## Koleksiyonlar ne işe yarıyor
 
 | Koleksiyon | Kim yazar | Siz ne yaparsınız |
