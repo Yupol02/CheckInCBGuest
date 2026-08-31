@@ -22,14 +22,16 @@
 // oluşturun. Aksi halde yönetici cihazlar (iOS VE ANDROID) authorized_devices'a
 // yazamaz, kaydolamaz ve yönetici işlevleri kilitlenir.
 //
-// ⚠️  BU DOSYA REFERANS KOPYASIDIR — ASIL EV: GuestsBackend
+// BU DOSYA TEK SÜRÜMLÜ KOPYADIR.
 //
-// Kurallar GuestsBackend klasöründen deploy ediliyor. Buradaki kopya, iOS
-// değişiklikleriyle birlikte gözden geçirilebilsin diye eklendi. Yayınlamak için
-// içeriği GuestsBackend'deki gerçek firestore.rules dosyasına kopyalayın ve
-// oradan deploy edin. İki kopyayı senkron tutun; ayrışırlarsa GuestsBackend geçerlidir.
+// Not: GuestsBackend/firebase.json içinde `firestore.rules` tanımlı DEĞİLDİR
+// (yalnızca indexes ve functions var), dolayısıyla
+// `firebase deploy --only firestore:rules` oradan çalışmaz. Diskte başka bir
+// firestore.rules dosyası da yoktur — sürüm kontrolündeki tek kopya budur.
 //
-// Deploy: firebase deploy --only firestore:rules   (GuestsBackend klasöründen)
+// YAYINLAMA: İçeriği Firebase Console → Firestore Database → Rules sekmesine
+// yapıştırıp Publish edin. Değişiklikten sonra bu dosyayı da güncel tutun ki
+// depo ile canlı kurallar ayrışmasın.
 // ============================================================================
 
 rules_version = '2';
