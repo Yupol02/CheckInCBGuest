@@ -58,6 +58,47 @@ struct Event: Identifiable, Codable, Hashable, Sendable {
         return eventDay < today
     }
 
+    /// Firestore'daki `eventDayKey` alanı — sunucu tarafı görünürlük kısıtının anahtarı.
+    ///
+    /// `date` alanı Türkçe metindir ("25 Ocak 2025"); güvenlik kuralları bu biçimi
+    /// ayrıştıramaz. Bu yüzden aynı gün, sıralanabilir bir tam sayı olarak (20250125)
+    /// ayrıca yazılır ve hem sorgu (`whereField >=`) hem kural bu alandan okur.
+    ///
+    /// Tarih ayrıştırılamazsa `computedStatus` ile AYNI geri düşüş uygulanır: kayıt
+    /// "geçmiş" değilse görünür kalır. Aksi hâlde tarihi bozuk tek bir kayıt, yönetici
+    /// olmayan tüm cihazlarda sessizce kaybolurdu.
+    var dayKey: Int {
+        guard let eventDay = parsedEventDay else {
+            return status == .past ? Self.oldestDayKey : Self.unknownDateDayKey
+        }
+        return Self.dayKey(for: eventDay)
+    }
+
+    /// Tarihi ayrıştırılamayan kayıtlar için üst sınır — her zaman görünür kalır.
+    static let unknownDateDayKey = 99_999_999
+    /// Tarihi ayrıştırılamayan ama "geçmiş" işaretli kayıtlar için alt sınır.
+    static let oldestDayKey = 0
+
+    /// Firestore alan adı; sorgu ve kural aynı ismi kullanır.
+    static let dayKeyField = "eventDayKey"
+
+    /// Cihazın bugünü — yönetici olmayan sorgunun alt sınırı.
+    ///
+    /// `computedStatus`/`isExpired` ile aynı takvimi kullanır ki "bugün hâlâ görünür"
+    /// kuralı arayüz ve sorgu tarafında ayrışmasın.
+    static func todayDayKey() -> Int {
+        dayKey(for: Calendar(identifier: .gregorian).startOfDay(for: Date()))
+    }
+
+    static func dayKey(for date: Date) -> Int {
+        let components = Calendar(identifier: .gregorian)
+            .dateComponents([.year, .month, .day], from: date)
+        guard let year = components.year,
+              let month = components.month,
+              let day = components.day else { return unknownDateDayKey }
+        return year * 10_000 + month * 100 + day
+    }
+
     private var parsedEventDay: Date? {
         guard let eventDate = Self.turkishDateFormatter.date(from: date) else { return nil }
         return Calendar(identifier: .gregorian).startOfDay(for: eventDate)

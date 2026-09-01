@@ -84,3 +84,42 @@ final class ObservationTaskHolder: @unchecked Sendable {
         pending.forEach { $0.cancel() }
     }
 }
+
+// MARK: - Etkinlik görünürlük kapsamı
+
+/// Etkinlik sorgularının kapsamı: yönetici cihaz tüm etkinlikleri, diğerleri
+/// yalnızca bugün ve sonrasını sorgular.
+///
+/// Neden ayrı bir tekil (singleton)?  Görünürlük artık bir GÜVENLİK KURALI olduğu için
+/// sorguyu kuran her yer (etkinlik dinleyicisi, misafir dinleyicisi, senkronizasyon
+/// çekmeleri) aynı daraltmayı uygulamak ZORUNDA: daraltılmamış tek bir sorgu, yönetici
+/// olmayan cihazda `permission-denied` ile TÜM sonucu düşürür — Firestore kuralları
+/// filtre değildir, sorgu ya tamamen geçer ya tamamen reddedilir.
+/// Depo katmanı `isAdminDevice` bilgisini kendi başına bilmediği için tek kaynak burasıdır.
+///
+/// Bayrak değiştiğinde açık dinleyiciler ESKİ sorguyla kurulmuş kalır; bu yüzden
+/// `setAdminDevice` değişiklik olduğunda `true` döner ve `EventViewModel` akışları
+/// yeniden kurar.
+final class EventVisibilityScope: @unchecked Sendable {
+
+    static let shared = EventVisibilityScope()
+
+    private let lock = NSLock()
+    private var storedIsAdminDevice = false
+
+    var isAdminDevice: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return storedIsAdminDevice
+    }
+
+    /// Değer gerçekten değiştiyse `true` döner (dinleyicilerin yeniden kurulması gerekir).
+    @discardableResult
+    func setAdminDevice(_ value: Bool) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard storedIsAdminDevice != value else { return false }
+        storedIsAdminDevice = value
+        return true
+    }
+}

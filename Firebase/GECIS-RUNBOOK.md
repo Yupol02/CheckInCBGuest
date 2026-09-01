@@ -205,3 +205,81 @@ kimliği doğrulayabilirsiniz.
 | 48 saat hiç sunucuya ulaşamama | Oturum kapanır, tekrar giriş istenir |
 | Uygulama silinip yeniden kurulur | Aynı cihaz sayılır (Keychain), çalışır |
 | Yedekten BAŞKA telefona geri yükleme | Yeni cihaz sayılır → sıfırlama gerekir (bilinçli) |
+
+---
+
+# v1.6 Geçişi — Geçmiş etkinlikler yalnızca yöneticide
+
+Yönetici olmayan cihazlar artık **yalnızca bugünkü ve gelecekteki** etkinlikleri
+(ve onların misafirlerini) görür. Kısıt hem arayüzde hem Firestore kurallarında
+uygulanır.
+
+## Nasıl çalışıyor?
+
+`events/<id>.eventDayKey` — yerel günün sıralanabilir tam sayı hâli (`20260831`).
+`date` alanı Türkçe metin olduğu için ("25 Ocak 2026") güvenlik kuralları onu
+ayrıştıramaz; anahtar bu yüzden ayrıca yazılır.
+
+- **İstemci** yönetici değilse sorguyu daraltır:
+  `whereField("eventDayKey", isGreaterThanOrEqualTo: <bugün>)`
+- **Kural** aynı sınırı doğrular; misafir alt koleksiyonları üst etkinliğin
+  görünürlüğüne bağlanmıştır.
+
+> **Kurallar filtre değildir.** Daraltılmamış bir sorgu, geçmiş tek bir kayıt
+> yüzünden tek tek eleme yapmaz — **tüm listeyi** `permission-denied` alır. Sıranın
+> kritik olmasının sebebi budur.
+
+## Sıra (bozulursa filo etkinlik listesini kaybeder)
+
+- [ ] **1. Yedek al:** `events` koleksiyonu (alan ekleniyor)
+- [ ] **2. Geri doldur** — hem yeni istemcilerden hem kurallardan ÖNCE.
+      Yeni istemci sorgusu `eventDayKey` alanına dayandığı için, alanı olmayan
+      etkinlikler sorgu sonucuna hiç girmez: geri doldurma yapılmadan 1.6'ya geçen
+      yönetici olmayan cihazlar **hiçbir etkinlik göremez**. Eski istemciler bu
+      alanı görmezden geldiği için erken doldurmanın hiçbir yan etkisi yoktur.
+      ```
+      export GOOGLE_APPLICATION_CREDENTIALS=/yol/servis-hesabi.json
+      node Firebase/scripts/backfill-event-day-key.js            # kuru çalışma
+      node Firebase/scripts/backfill-event-day-key.js --apply
+      ```
+      Çıktıdaki "tarihi ayrıştırılamayan kayıtlar" listesini gözden geçirin:
+      bunlar `date` alanı bozuk etkinliklerdir; "geçmiş" işaretli değillerse
+      görünür bırakılır (`99999999`).
+- [ ] **3. iOS 1.6'yı yayınla** ve **Ready for Sale** bekle
+- [ ] **4. Android'e aynı iki değişikliği uygula ve dağıt:**
+      - etkinlik yazan her yere `eventDayKey` alanı (aynı hesaplama)
+      - yönetici değilse etkinlik sorgusunu `eventDayKey >= bugün` ile daralt
+- [ ] **5. Tüm cihazların güncellendiğini doğrula** (eski sürümde kalan bir cihaz
+      6. adımdan sonra etkinlik listesini bomboş görür)
+- [ ] **6. Kuralları yayınla:** `firebase deploy --only firestore:rules`
+- [ ] **7. Rules Playground ile doğrula:**
+      - ✅ İzin: yönetici olmayan hesap, `eventDayKey` bugüne eşit bir etkinliği okur
+      - ❌ Ret: yönetici olmayan hesap, geçen aya ait bir etkinliği okur
+      - ✅ İzin: yönetici hesap aynı geçmiş etkinliği okur
+      - ❌ Ret: yönetici olmayan hesap, geçmiş etkinliğin `eventDayKey` alanını
+        ileri tarihe günceller
+      - ❌ Ret: yönetici olmayan hesap, geçmiş etkinliğin `guests` kaydını okur
+
+## Sonrasında
+
+| Durum | Sonuç |
+|---|---|
+| Yönetici olmayan cihaz | Yalnızca bugünkü + gelecekteki etkinlikler; arama da bu kapsamda |
+| Yönetici cihaz | Tümü, geçmiş dahil |
+| Yönetici bayrağı sonradan gelirse | Liste kendiliğinden genişler; gelmezse aşağı çekip yenileyin |
+| Etkinlik alansız oluşturulmuşsa (eski istemci) | Yönetici olmayan cihazlarda görünmez → geri doldurma betiğini tekrar çalıştırın |
+| Uygulama gece yarısını açık geçirirse | Dünkü etkinlik listede kalmaz (arayüz filtresi gizler), sorgu ise bir sonraki açılışta/yenilemede tazelenir |
+
+## Bilinçli sınırlar
+
+- **1 gün tolerans.** Kural, sunucu gününden bir gün geriye izin verir; çünkü
+  sorgunun alt sınırını cihaz kendi saatinden hesaplar ve saati/zaman dilimi geri
+  kalan bir cihaz aksi hâlde **hiçbir** etkinlik göremezdi. Bedeli: kendi
+  istemcisini yazan biri yalnızca **dünkü** etkinlikleri görebilir.
+- **Yazma kuralları değişmedi.** Geçmiş etkinlikte değişikliği istemci engeller;
+  kurala da koymak, gün anahtarı eksik kalmış tek bir kayıtta etkinlik gecesi tüm
+  giriş/çıkışı kilitleme riski taşırdı.
+- **`collectionGroup(guests)` sorgusu** (tek bir misafiri id ile arayan geri
+  düşüş yolu) bu kurallarla çalışmaz — koleksiyon grubu sorguları için
+  `match /{path=**}/guests/{guestId}` gerekir ve böyle bir kural üst etkinlik
+  kontrolünü baypas ederdi. Bu yol v1.4'te de reddediliyordu, davranış değişmedi.

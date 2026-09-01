@@ -76,6 +76,12 @@ final class EventViewModel {
     @ObservationIgnored
     private nonisolated let observationTasks = ObservationTaskHolder()
 
+    /// Etkinlik ve misafir akışları ayrı tutulur: yönetici bayrağı değiştiğinde sorgu
+    /// kapsamı da değiştiği için YALNIZCA bu iki dinleyici yeniden kurulur
+    /// (kırmızı liste akışları kapsamdan etkilenmez).
+    @ObservationIgnored
+    private nonisolated let eventObservationTasks = ObservationTaskHolder()
+
     // MARK: Published state
 
     private(set) var events: [Event] = []
@@ -155,6 +161,7 @@ final class EventViewModel {
 
     deinit {
         observationTasks.cancelAll()
+        eventObservationTasks.cancelAll()
     }
 
     // MARK: - Computed
@@ -177,10 +184,26 @@ final class EventViewModel {
         return result
     }
 
+    /// Geçmiş etkinlikler yalnızca yönetici cihazlara görünür.
+    ///
+    /// Yönetici olmayan cihaz yalnızca bugünkü (aktif) ve gelecekteki etkinlikleri görür.
+    /// Ölçüt, düzenlemeyi kilitleyen `isEventPast` ile BİLEREK aynıdır: bir etkinlik
+    /// "değiştirilemez" hâle geldiği anda yetkisiz cihaz için görünmez de olur.
+    ///
+    /// Tek kapı olarak burası kullanılır — hem liste (`eventsWithCounts`) hem arama
+    /// (`searchGuestsAcrossEvents`) bu ölçütten geçer; aksi hâlde gizlenen bir etkinliğin
+    /// misafiri "Kişiler" arama sonucundan sızardı.
+    ///
+    /// NOT: Bu yalnızca ARAYÜZ katmanıdır. Veri, Firestore'dan hâlâ her cihaza iniyor;
+    /// sunucu tarafı kısıt için `events` dokümanlarına tarih alanı + kural gerekir.
+    func isEventVisible(_ event: Event) -> Bool {
+        isAdminDevice || !isEventPast(event)
+    }
+
     /// Etkinlik listesi — katılımcı / toplam sayılar misafirlerden hesaplanır.
     var eventsWithCounts: [Event] {
         let guestsByEvent = Dictionary(grouping: mergedGuests, by: \.eventId)
-        return events.map { event -> Event in
+        return events.filter { isEventVisible($0) }.map { event -> Event in
             let eventGuests: [Guest] = guestsByEvent[event.id] ?? []
             let total = eventGuests.count
             let participated = eventGuests.filter { guest in
@@ -247,8 +270,12 @@ final class EventViewModel {
         let normalizedQuery = query.normalizeGuestName()
         guard normalizedQuery.count >= 2 else { return [] }
 
+        // Yetkisiz cihazda geçmiş etkinlik burada da elenir: aksi hâlde etkinlik listeden
+        // gizlenmişken misafiri "Kişiler" sonuçlarında görünür ve karta dokunulunca
+        // gizlenmiş etkinliğin detayına gidilirdi.
+        let visibleEvents = events.filter { !$0.isDeleted && isEventVisible($0) }
         let eventsById = Dictionary(
-            events.lazy.filter { !$0.isDeleted }.map { ($0.id, $0) },
+            visibleEvents.map { ($0.id, $0) },
             uniquingKeysWith: { first, _ in first }
         )
 
@@ -319,6 +346,10 @@ final class EventViewModel {
                 isLoading = false
             }
         }
+        // Yönetici bayrağı artık listenin İÇERİĞİNİ de belirliyor (geçmiş etkinlikler).
+        // Açılışta Firestore turu geç veya çevrimdışı döndüyse yönetici, geçmiş etkinlikleri
+        // göremeden kalırdı; aşağı çekerek yenileme bunu uygulamayı kapatmadan düzeltir.
+        await checkAdminStatus()
         await syncAfterOperation()
     }
 
@@ -868,29 +899,7 @@ final class EventViewModel {
     // MARK: - Observation
 
     private func startObservationTasks() {
-        observationTasks.add(Task { @MainActor [weak self] in
-            guard let self else { return }
-            var isFirstSnapshot = true
-            for await snapshot in eventRepository.allEvents() {
-                self.events = snapshot
-                if isFirstSnapshot {
-                    isFirstSnapshot = false
-                    self.isBootstrapping = false
-                    Self.logger.debug("İlk etkinlik snapshot: \(snapshot.count) kayıt")
-                    if snapshot.isEmpty {
-                        await self.syncAfterOperation()
-                    }
-                }
-            }
-        })
-
-        observationTasks.add(Task { @MainActor [weak self] in
-            guard let self else { return }
-            for await snapshot in eventRepository.allGuests() {
-                self.guests = snapshot
-                self.reconcileOptimisticUpdates(with: snapshot)
-            }
-        })
+        startEventObservationTasks()
 
         observationTasks.add(Task { @MainActor [weak self] in
             guard let self else { return }
@@ -907,9 +916,52 @@ final class EventViewModel {
         })
     }
 
+    /// Etkinlik + misafir dinleyicilerini (yeniden) kurar.
+    ///
+    /// Dinleyiciler kurulduğu andaki görünürlük kapsamıyla sorgu açar; yönetici bayrağı
+    /// sonradan `true` olduğunda eski dar sorgu açık kalırdı ve yönetici geçmiş
+    /// etkinlikleri hiç göremezdi. Bu yüzden bayrak değişince buradan yeniden kurulur.
+    private func startEventObservationTasks() {
+        eventObservationTasks.cancelAll()
+
+        eventObservationTasks.add(Task { @MainActor [weak self] in
+            guard let self else { return }
+            var isFirstSnapshot = true
+            for await snapshot in eventRepository.allEvents() {
+                self.events = snapshot
+                if isFirstSnapshot {
+                    isFirstSnapshot = false
+                    // Boşken senkronizasyon tetiklemesi YALNIZCA ilk açılışa aittir;
+                    // kapsam değişiminde yeniden kurulumda tekrarlanmamalıdır.
+                    let wasBootstrapping = self.isBootstrapping
+                    self.isBootstrapping = false
+                    Self.logger.debug("İlk etkinlik snapshot: \(snapshot.count) kayıt")
+                    if wasBootstrapping, snapshot.isEmpty {
+                        await self.syncAfterOperation()
+                    }
+                }
+            }
+        })
+
+        eventObservationTasks.add(Task { @MainActor [weak self] in
+            guard let self else { return }
+            for await snapshot in eventRepository.allGuests() {
+                self.guests = snapshot
+                self.reconcileOptimisticUpdates(with: snapshot)
+            }
+        })
+    }
+
     private func checkAdminStatus() async {
         let deviceId = DeviceIdentifier.getDeviceId()
-        isAdminDevice = await authorizedDeviceRepository.isAdminDevice(deviceId: deviceId)
+        let isAdmin = await authorizedDeviceRepository.isAdminDevice(deviceId: deviceId)
+        isAdminDevice = isAdmin
+
+        // Kapsam değiştiyse açık dinleyiciler eski sorguyu kullanıyor demektir.
+        if EventVisibilityScope.shared.setAdminDevice(isAdmin) {
+            Self.logger.debug("Görünürlük kapsamı değişti (yönetici: \(isAdmin)) — akışlar yeniden kuruluyor")
+            startEventObservationTasks()
+        }
     }
 
     // MARK: - Helpers

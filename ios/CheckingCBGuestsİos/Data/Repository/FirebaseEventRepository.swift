@@ -35,6 +35,22 @@ final class FirebaseEventRepository: EventRepository, @unchecked Sendable {
         firestore.collection(Collection.events)
     }
 
+    /// Cihazın GÖREBİLECEĞİ etkinlik sorgusu.
+    ///
+    /// Yönetici olmayan cihaz `eventDayKey >= bugün` ile daraltılmış sorgu kurmak
+    /// ZORUNDADIR: güvenlik kuralı geçmiş etkinlikleri reddettiği için daraltılmamış
+    /// sorgu tek tek belge elemek yerine TÜM sorguyu `permission-denied` yapar.
+    /// Etkinlik koleksiyonuna dokunan her okuma bu yardımcıdan geçmelidir.
+    static func scopedEventsQuery(firestore: Firestore) -> Query {
+        let collection = firestore.collection(Collection.events)
+        guard !EventVisibilityScope.shared.isAdminDevice else { return collection }
+        return collection.whereField(Event.dayKeyField, isGreaterThanOrEqualTo: Event.todayDayKey())
+    }
+
+    private var scopedEventsQuery: Query {
+        Self.scopedEventsQuery(firestore: firestore)
+    }
+
     private func guestsCollection(eventId: String) -> CollectionReference {
         precondition(!eventId.isEmpty && !eventId.contains("/"), "Invalid eventId: \(eventId)")
         return eventsCollection.document(eventId).collection(Collection.guests)
@@ -50,7 +66,7 @@ final class FirebaseEventRepository: EventRepository, @unchecked Sendable {
     func allEvents() -> AsyncStream<[Event]> {
         let firestore = firestore
         return AsyncStream { continuation in
-            let registration = firestore.collection(Collection.events).addSnapshotListener { snapshot, error in
+            let registration = Self.scopedEventsQuery(firestore: firestore).addSnapshotListener { snapshot, error in
                 if let error {
                     Self.logger.error("Events listener error: \(error.localizedDescription, privacy: .public)")
                     continuation.yield([])
@@ -95,7 +111,7 @@ final class FirebaseEventRepository: EventRepository, @unchecked Sendable {
                 continuation.yield(coordinator.mergedGuests())
             }
 
-            let eventsRegistration = firestore.collection(Collection.events).addSnapshotListener { snapshot, error in
+            let eventsRegistration = Self.scopedEventsQuery(firestore: firestore).addSnapshotListener { snapshot, error in
                 if error != nil {
                     continuation.yield([])
                     return
@@ -346,7 +362,8 @@ final class FirebaseEventRepository: EventRepository, @unchecked Sendable {
 
     func allEventsIncludingDeleted() async -> [Event] {
         do {
-            let snapshot = try await eventsCollection.getDocuments()
+            // Silinmişler dahil, ancak yalnızca bu cihazın görmeye yetkili olduğu kapsamda.
+            let snapshot = try await scopedEventsQuery.getDocuments()
             return snapshot.documents.compactMap { document -> Event? in
                 var data = document.data()
                 if data["id"] == nil { data["id"] = document.documentID }
@@ -426,6 +443,9 @@ final class FirebaseEventRepository: EventRepository, @unchecked Sendable {
             "location": event.location,
             "startTime": event.startTime,
             "status": event.status.rawValue,
+            // Kuralın ve daraltılmış sorgunun okuduğu alan; `date` metni ayrıştırılamadığı
+            // için zorunludur. Yazılmazsa etkinlik yönetici olmayan cihazlarda görünmez.
+            Event.dayKeyField: event.dayKey,
             "deleted": false,
             "deletedAt": "",
         ]
@@ -444,6 +464,7 @@ final class FirebaseEventRepository: EventRepository, @unchecked Sendable {
             "location": event.location,
             "startTime": event.startTime,
             "status": event.status.rawValue,
+            Event.dayKeyField: event.dayKey,
             "deletedAt": event.deletedAt ?? "",
             "deleted": event.deletedAt != nil,
         ]

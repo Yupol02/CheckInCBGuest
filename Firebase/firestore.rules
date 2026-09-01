@@ -2,7 +2,26 @@
 // CheckingCBGuest — Firestore Güvenlik Kuralları
 // ============================================================================
 //
-// Son güncelleme: 2026-08-30 (v1.4 — cihaz bağlama + Firestore admin listesi)
+// Son güncelleme: 2026-08-31 (v1.6 — geçmiş etkinlikler yalnızca yöneticide)
+//
+// v1.6 DEĞİŞİKLİKLERİ:
+//
+//   1. Geçmiş etkinlikler ve onların misafirleri yönetici olmayan cihazlara
+//      KAPATILDI. Ölçüt: `events/<id>.eventDayKey` (20260831 gibi sıralanabilir
+//      tam sayı). `date` alanı Türkçe metin olduğu için ("25 Ocak 2026")
+//      kurallar tarafından ayrıştırılamaz; bu yüzden ayrı bir gün anahtarı
+//      yazılır ve hem istemci sorgusu hem bu kurallar onu okur.
+//
+//   2. `eventDayKey` yazımı zorunludur (create) ve bir kez yazıldıktan sonra
+//      yalnızca yönetici değiştirebilir. Aksi hâlde herhangi bir kullanıcı
+//      geçmiş bir etkinliğin anahtarını ileri tarihe çekip kısıtı delerdi.
+//
+// DİKKAT — YAYIN SIRASI (v1.6): Bu dosyayı yayınlamadan ÖNCE (a) mevcut tüm
+// `events` dokümanlarına `eventDayKey` geri doldurulmuş olmalı
+// (`Firebase/scripts/backfill-event-day-key.js`), (b) iOS VE ANDROID istemciler
+// sorgusunu daraltan sürüme geçmiş olmalıdır. Kurallar filtre değildir:
+// daraltılmamış eski bir istemci sorgusu tek tek belge elemek yerine TÜM
+// etkinlik listesini `permission-denied` alır. Ayrıntı: Firebase/GECIS-RUNBOOK.md
 //
 // v1.4 DEĞİŞİKLİKLERİ (bunun dışındaki her blok AYNEN korunmuştur):
 //
@@ -68,6 +87,54 @@ service cloud.firestore {
           && exists(/databases/$(database)/documents/admin_users/$(normEmail()))
           && get(/databases/$(database)/documents/admin_users/$(normEmail()))
                .data.get('isAdmin', false) == true;
+    }
+
+    // ---- v1.6: Geçmiş etkinlik görünürlüğü ------------------------------------
+
+    // Bir zaman damgasından sıralanabilir gün anahtarı: 2026-08-31 -> 20260831.
+    function dayKeyOf(t) {
+      return t.year() * 10000 + t.month() * 100 + t.day();
+    }
+
+    // Yönetici olmayan cihazın görebileceği EN ESKİ gün.
+    //
+    // request.time UTC'dir; Türkiye sabit UTC+3 (yaz saati yok) olduğu için 3 saat
+    // eklenerek yerel güne çevrilir.
+    //
+    // Neden 1 gün tolerans (-24s)? İstemci, sorgunun alt sınırını KENDİ saatinden
+    // hesaplamak zorundadır (whereField eventDayKey >= bugün). Cihaz saati veya zaman
+    // dilimi sunucudan geride kalırsa alt sınır bir gün eskiye kayar; tolerans olmadan
+    // sorgu tek tek belge elemek yerine TAMAMEN reddedilir ve kullanıcı bomboş bir liste
+    // görür. Bedeli bilinçlidir: kötü niyetli bir istemci sorgusunu elle bir gün geriye
+    // çekerek yalnızca DÜNKÜ etkinlikleri görebilir, daha eskisini göremez.
+    function minVisibleDayKey() {
+      return dayKeyOf(request.time + duration.value(3, 'h') - duration.value(24, 'h'));
+    }
+
+    // Etkinlik bu cihaza görünür mü? Ucuz olan alan karşılaştırması önce denenir;
+    // isAdmin() yalnızca geçmiş etkinliklerde çalışır (doküman okuması maliyetlidir).
+    function eventVisible(eventData) {
+      return eventData.get('eventDayKey', 0) >= minVisibleDayKey() || isAdmin();
+    }
+
+    // Misafir kayıtları için üst etkinliğin görünürlüğü.
+    //
+    // isAdmin() BİLEREK önce çağrılır: üst etkinlik dokümanı (yarım kalmış bir silme
+    // yüzünden) yoksa get() hata verir ve kural reddeder; yönetici bu durumda da
+    // öksüz kayıtlara erişebilmelidir.
+    function parentEventVisible(eventId) {
+      return isAdmin()
+          || get(/databases/$(database)/documents/events/$(eventId))
+               .data.get('eventDayKey', 0) >= minVisibleDayKey();
+    }
+
+    // Gün anahtarı bir kez yazıldıktan sonra yalnızca yönetici değiştirebilir.
+    // Alan hiç yoksa (v1.6 öncesi kalıntı doküman) ilk yazıma izin verilir; böylece
+    // geri doldurmayı kaçırmış bir kayıt istemci tarafından onarılabilir.
+    function dayKeyUnchangedOrAdmin() {
+      return isAdmin()
+          || !('eventDayKey' in resource.data)
+          || request.resource.data.get('eventDayKey', 0) == resource.data.eventDayKey;
     }
 
     // Bu yazma, kaydı "silinmiş" duruma geçiriyor mu?
@@ -149,10 +216,20 @@ service cloud.firestore {
     // EVENTS - Etkinlik Yönetimi
     // ==========================================================================
     // Oluşturma ve güncelleme herkese açık; SİLME yalnızca yöneticiye.
+    // v1.6: OKUMA artık gün anahtarına bağlıdır — yönetici olmayan cihaz yalnızca
+    // bugünü ve gelecekteki etkinlikleri görür. İstemci sorgusu da aynı sınırla
+    // daraltılmak ZORUNDADIR:
+    //     .whereField("eventDayKey", isGreaterThanOrEqualTo: <bugün>)
+    // Daraltılmamış sorgu, geçmiş tek bir kayıt yüzünden TAMAMEN reddedilir.
+    //
+    // create: eventDayKey zorunlu — yazılmayan etkinlik yönetici olmayan hiçbir
+    // cihazda görünmez (sessiz kayıp yerine gürültülü ret tercih edildi).
     match /events/{eventId} {
-      allow read: if signedIn();
-      allow create: if signedIn();
-      allow update: if signedIn() && (!marksDeleted() || isAdmin());
+      allow read: if signedIn() && eventVisible(resource.data);
+      allow create: if signedIn() && request.resource.data.eventDayKey is int;
+      allow update: if signedIn()
+                    && (!marksDeleted() || isAdmin())
+                    && dayKeyUnchangedOrAdmin();
       allow delete: if isAdmin();
     }
 
@@ -161,8 +238,13 @@ service cloud.firestore {
     // ==========================================================================
     // Giriş/çıkış, saat düzeltme, ünvan güncelleme vb. herkese açık.
     // SİLME yalnızca yöneticiye.
+    // v1.6: Okuma üst etkinliğin görünürlüğüne bağlandı — etkinlik listede
+    // gizliyken misafirleri doğrudan yol ile okunabiliyordu.
+    // YAZMA bilinçli olarak DEĞİŞTİRİLMEDİ: geçmiş etkinlikte değişikliği zaten
+    // istemci engelliyor; buraya da koşul eklemek, gün anahtarı eksik kalmış tek bir
+    // kayıtta tüm giriş/çıkış işlemlerini kilitleme riskini getirirdi.
     match /events/{eventId}/guests/{guestId} {
-      allow read: if signedIn();
+      allow read: if signedIn() && parentEventVisible(eventId);
       allow create: if signedIn();
       allow update: if signedIn() && (!marksDeleted() || isAdmin());
       allow delete: if isAdmin();
@@ -174,8 +256,9 @@ service cloud.firestore {
     // Onay bekleyen kayıtlar. /guests ile AYNI silme modeli uygulanır:
     // oluşturma ve normal güncelleme herkese açık (misafir ekleyen görevlinin
     // kırmızı listeye takılan kaydı buraya düşer), silme yalnızca yöneticiye.
+    // v1.6: /guests ile aynı gerekçeyle okuma üst etkinliğe bağlandı.
     match /events/{eventId}/guests_secure/{guestId} {
-      allow read: if signedIn();
+      allow read: if signedIn() && parentEventVisible(eventId);
       allow create: if signedIn();
       allow update: if signedIn() && (!marksDeleted() || isAdmin());
       allow delete: if isAdmin();
