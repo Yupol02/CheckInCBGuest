@@ -41,6 +41,11 @@ final class FirebaseSyncRepository: SyncRepository, @unchecked Sendable {
     private func guestsSecureCollection(_ eventId: String) -> CollectionReference {
         eventsCollection.document(eventId).collection("guests_secure")
     }
+    /// Bkz. `FirebaseEventRepository.scopedEventsQuery` — daraltma kuralı tek yerden gelir.
+    private var scopedEventsQuery: Query {
+        FirebaseEventRepository.scopedEventsQuery(firestore: firestore)
+    }
+
     private var authorizedDevicesCollection: CollectionReference {
         firestore.collection("authorized_devices")
     }
@@ -56,6 +61,9 @@ final class FirebaseSyncRepository: SyncRepository, @unchecked Sendable {
         let deviceId = DeviceIdentifier.getDeviceId()
         await pullAuthorizedDevice(deviceId: deviceId)
         let isAdmin = await authorizedDeviceRepository.isAdminDevice(deviceId: deviceId)
+        // Aşağıdaki çekmeler etkinlik koleksiyonunu sorguluyor; kapsam güncel olmazsa
+        // yönetici cihaz geçmiş etkinlikleri çekemez, yönetici olmayan ise reddedilir.
+        EventVisibilityScope.shared.setAdminDevice(isAdmin)
 
         let pullResult = await pullRemoteChangesLightweight(isAdmin: isAdmin)
         if pullResult.state == .error { return pullResult }
@@ -73,7 +81,7 @@ final class FirebaseSyncRepository: SyncRepository, @unchecked Sendable {
     func pullRemoteChanges(isAdmin: Bool) async -> SyncResult {
         let eventsSnapshot: QuerySnapshot
         do {
-            eventsSnapshot = try await eventsCollection.getDocuments(source: .server)
+            eventsSnapshot = try await scopedEventsQuery.getDocuments(source: .server)
         } catch {
             return .error(mapFirebaseException(error))
         }
@@ -119,7 +127,7 @@ final class FirebaseSyncRepository: SyncRepository, @unchecked Sendable {
     private func pullRemoteChangesLightweight(isAdmin: Bool) async -> SyncResult {
         let eventsSnapshot: QuerySnapshot
         do {
-            eventsSnapshot = try await eventsCollection.getDocuments(source: .server)
+            eventsSnapshot = try await scopedEventsQuery.getDocuments(source: .server)
         } catch {
             return .error(mapFirebaseException(error))
         }
@@ -168,7 +176,7 @@ final class FirebaseSyncRepository: SyncRepository, @unchecked Sendable {
 
                 let eventDoc = eventsCollection.document(event.id)
                 if let deletedAt = event.deletedAt {
-                    batch.setData(deletedEventData(eventId: event.id, deletedAt: deletedAt, deviceId: deviceId), forDocument: eventDoc, merge: true)
+                    batch.setData(deletedEventData(event, deletedAt: deletedAt, deviceId: deviceId), forDocument: eventDoc, merge: true)
                 } else {
                     batch.setData(eventData(event, deviceId: deviceId), forDocument: eventDoc, merge: true)
                 }
@@ -290,15 +298,19 @@ final class FirebaseSyncRepository: SyncRepository, @unchecked Sendable {
             "location": event.location,
             "startTime": event.startTime,
             "status": event.status.rawValue,
+            Event.dayKeyField: event.dayKey,
             "deleted": false,
             "lastModified": FieldValue.serverTimestamp(),
             "modifiedBy": deviceId,
         ]
     }
 
-    private func deletedEventData(eventId: String, deletedAt: String, deviceId: String) -> [String: Any] {
+    private func deletedEventData(_ event: Event, deletedAt: String, deviceId: String) -> [String: Any] {
         [
-            "id": eventId,
+            "id": event.id,
+            // Doküman uzakta yoksa bu yazma bir CREATE'tir ve kural `eventDayKey` alanını
+            // şart koşar; alan olmadan silme kaydı reddedilirdi.
+            Event.dayKeyField: event.dayKey,
             "deleted": true,
             "deletedAt": deletedAt,
             "lastModified": FieldValue.serverTimestamp(),

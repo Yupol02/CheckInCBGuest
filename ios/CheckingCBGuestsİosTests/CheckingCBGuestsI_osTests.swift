@@ -219,4 +219,38 @@ final class CheckingCBGuestsI_osTests: XCTestCase {
             XCTAssertEqual(decision, .reject(boundDeviceName: nil), "değer: \(value)")
         }
     }
+
+    // MARK: - v1.6 gün anahtarı (eventDayKey)
+
+    private func makeEvent(date: String, status: EventStatus = .active) -> Event {
+        Event(id: "e1", title: "T", date: date, location: "L", startTime: "19:00", status: status)
+    }
+
+    /// Anahtar, geri doldurma betiği ve güvenlik kuralıyla aynı biçimde üretilmelidir:
+    /// "25 Ocak 2026" → 20260125. Biçim kayarsa yönetici olmayan cihazlar etkinlikleri
+    /// göremez (sorgu alt sınırı tutmaz).
+    func testDayKeyMatchesTurkishDateString() {
+        XCTAssertEqual(makeEvent(date: "25 Ocak 2026").dayKey, 20_260_125)
+        XCTAssertEqual(makeEvent(date: "1 Aralık 2025").dayKey, 20_251_201)
+        XCTAssertEqual(makeEvent(date: "9 Ağustos 2026").dayKey, 20_260_809)
+    }
+
+    /// Bugünkü etkinlik sorgunun alt sınırına EŞİT olmalı — aksi halde etkinlik günü
+    /// sabahı tüm liste boşalırdı.
+    func testTodaysEventIsNotBelowQueryBound() {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "tr_TR")
+        formatter.dateFormat = "d MMMM yyyy"
+
+        let today = makeEvent(date: formatter.string(from: Date()))
+        XCTAssertEqual(today.dayKey, Event.todayDayKey())
+        XCTAssertFalse(today.isExpired, "Bugünkü etkinlik geçmiş sayılmamalı")
+    }
+
+    /// Tarihi ayrıştırılamayan kayıt sessizce kaybolmamalı: "geçmiş" işaretli değilse
+    /// görünür kalır, işaretliyse gizlenir.
+    func testUnparsableDateFallsBackToStatus() {
+        XCTAssertEqual(makeEvent(date: "bozuk tarih").dayKey, Event.unknownDateDayKey)
+        XCTAssertEqual(makeEvent(date: "", status: .past).dayKey, Event.oldestDayKey)
+    }
 }
