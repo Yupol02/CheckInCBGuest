@@ -231,9 +231,7 @@ service cloud.firestore {
     //   allow list: if signedIn()
     //               && (isAdmin() || resource.data.eventDayKey >= minVisibleDayKey());
     //   allow create: if signedIn() && request.resource.data.eventDayKey is int;
-    //   allow update: if signedIn()
-    //                 && (!marksDeleted() || isAdmin())
-    //                 && dayKeyUnchangedOrAdmin();
+    //   allow update: if isAdmin();
     //
     // `get` ile `list` AYRI yazılmalıdır ve bu zorunludur: liste sorgusunda koşul,
     // sorgunun kendi filtresinden KANITLANABİLİR olmak zorundadır. Varsayılanlı
@@ -242,10 +240,24 @@ service cloud.firestore {
     // `allow read` yazılırsa arıza aynen geri gelir. Tekil belge okumasında
     // (`get`) böyle bir kısıt yoktur; orada eksik alanı görünür sayan hoşgörülü
     // biçim, geri doldurma tamamlanmadan detay ekranlarının kırılmasını önler.
+    // v1.6.2: ETKİNLİK GÜNCELLEME YALNIZCA YÖNETİCİDE.
+    //
+    // Etkinlik düzenleme (ad / içerik / tarih / saat) 1.6 ile geldi ve yöneticiye
+    // özeldir. Arayüzde gizlemek zorlama değildir; kısıt burada da uygulanır.
+    //
+    // YAYIN SIRASI — BU KURALI ERKEN YAYINLAMAYIN: sahada 1.6 ÖNCESİ bir istemci
+    // etkinlik dokümanını güncellemeye çalışırsa yazma reddedilir. Yazma bir batch
+    // içindeyse Firestore batch'in TAMAMINI düşürür; aynı batch'teki misafir
+    // giriş/çıkış kayıtları da sunucuya ulaşmaz. Bu kuralı ancak iOS ve Android'in
+    // yeni sürümleri TÜM cihazlara ulaştıktan sonra yayınlayın.
+    //
+    // iOS 1.6 tarafında etkinlik dokümanına yazan yollar: insertEvent (create),
+    // updateEvent (yalnızca yönetici) ve soft-delete (yalnızca yönetici).
+    // `oluşturma` bilerek herkese açık bırakıldı.
     match /events/{eventId} {
       allow read: if signedIn();
       allow create: if signedIn();
-      allow update: if signedIn() && (!marksDeleted() || isAdmin());
+      allow update: if isAdmin();
       allow delete: if isAdmin();
     }
 

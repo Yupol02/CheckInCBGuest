@@ -123,3 +123,37 @@ final class EventVisibilityScope: @unchecked Sendable {
         return true
     }
 }
+
+// MARK: - Dinleyici hatalarını arayüze taşıma
+
+/// Firestore anlık dinleyicilerinde oluşan hataları arayüze taşır.
+///
+/// NEDEN VAR: `allEvents()` / `allGuests()` akışları `AsyncStream<[Event]>` döndürür;
+/// hata kanalı yoktur. Dinleyici `permission-denied` aldığında depo katmanı eskiden
+/// sessizce BOŞ liste yayınlıyordu ve kullanıcı "hiç etkinlik yok" görüyordu. v1.6'da
+/// yaşanan görünürlük arızası tam bu yüzden günlerce fark edilmedi: yetki hatası,
+/// bomboş ama hatasız bir ekran olarak göründü.
+///
+/// `EventVisibilityScope` ile aynı kalıp kullanılır — depo katmanının arayüze
+/// ulaşamadığı durumlar için bu dosyadaki yerleşik çözüm budur.
+final class StreamErrorReporter: @unchecked Sendable {
+
+    static let shared = StreamErrorReporter()
+
+    private let lock = NSLock()
+    private var handler: (@Sendable (String) -> Void)?
+
+    /// Arayüz katmanı (EventViewModel) kendini buraya bağlar.
+    func setHandler(_ newHandler: (@Sendable (String) -> Void)?) {
+        lock.lock()
+        defer { lock.unlock() }
+        handler = newHandler
+    }
+
+    func report(_ message: String) {
+        lock.lock()
+        let current = handler
+        lock.unlock()
+        current?(message)
+    }
+}
