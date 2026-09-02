@@ -2,55 +2,55 @@
 // CheckingCBGuest — Firestore Güvenlik Kuralları
 // ============================================================================
 //
-// Son güncelleme: 2026-08-31 (v1.6 — geçmiş etkinlikler yalnızca yöneticide)
+// Son güncelleme: 2026-09-02 (v1.6.1 — GEÇİŞ SÜRÜMÜ: okuma kısıtı geçici kapalı)
 //
-// v1.6 DEĞİŞİKLİKLERİ:
+// ---------------------------------------------------------------------------
+// v1.6.1 NEDEN VAR — OKUMADAN DEĞİŞTİRMEYİN
+// ---------------------------------------------------------------------------
+// v1.6 yayınlandığında yönetici olmayan HİÇBİR hesap (iOS ve Android) etkinlik
+// göremedi: ne geçmiş, ne bugün, ne gelecek. Sebep kuralın mantığı değil,
+// YAYIN SIRASIYDI:
 //
-//   1. Geçmiş etkinlikler ve onların misafirleri yönetici olmayan cihazlara
-//      KAPATILDI. Ölçüt: `events/<id>.eventDayKey` (20260831 gibi sıralanabilir
-//      tam sayı). `date` alanı Türkçe metin olduğu için ("25 Ocak 2026")
-//      kurallar tarafından ayrıştırılamaz; bu yüzden ayrı bir gün anahtarı
-//      yazılır ve hem istemci sorgusu hem bu kurallar onu okur.
+//   * Kural, istemcinin `eventDayKey >= bugün` ile daraltılmış sorgu kurmasını
+//     şart koşar.
+//   * Ancak Firestore'daki `events` dokümanlarında `eventDayKey` alanı HİÇ YOKTU
+//     (geri doldurma betiği çalıştırılmamıştı).
+//   * Bir aralık sorgusu, o alanı taşımayan belgeyi hiç döndürmez. Alan hiçbir
+//     belgede olmayınca sonuç kümesi TAMAMEN boşaldı.
+//   * Üstelik cihazlardaki uygulama sürümleri sorguyu henüz daraltmıyordu;
+//     daraltılmamış sorgu ise belge elemek yerine `permission-denied` alır ve
+//     istemci bunu boş liste olarak gösterir.
 //
-//   2. `eventDayKey` yazımı zorunludur (create) ve bir kez yazıldıktan sonra
-//      yalnızca yönetici değiştirebilir. Aksi hâlde herhangi bir kullanıcı
-//      geçmiş bir etkinliğin anahtarını ileri tarihe çekip kısıtı delerdi.
+// Bu dosya arızayı DURDURUR: okuma kısıtı geçici olarak kaldırılmıştır. Kısıtı
+// üreten yardımcı fonksiyonlar (minVisibleDayKey / eventVisible /
+// parentEventVisible) BİLEREK dosyada bırakıldı; geri açmak üç satırlık iştir.
 //
-// DİKKAT — YAYIN SIRASI (v1.6): Bu dosyayı yayınlamadan ÖNCE (a) mevcut tüm
-// `events` dokümanlarına `eventDayKey` geri doldurulmuş olmalı
-// (`Firebase/scripts/backfill-event-day-key.js`), (b) iOS VE ANDROID istemciler
-// sorgusunu daraltan sürüme geçmiş olmalıdır. Kurallar filtre değildir:
-// daraltılmamış eski bir istemci sorgusu tek tek belge elemek yerine TÜM
-// etkinlik listesini `permission-denied` alır. Ayrıntı: Firebase/GECIS-RUNBOOK.md
+// ---------------------------------------------------------------------------
+// KISITI GERİ AÇMA SIRASI — hepsi bitmeden yayınlamayın
+// ---------------------------------------------------------------------------
+//   1. Geri doldurma: `node Firebase/scripts/backfill-event-day-key.js --apply`
+//      Betiği tekrar çalıştırıp `eksik : 0` gördüğünüzde bu adım biter.
+//   2. iOS VE ANDROID'in daraltılmış sorgulu sürümleri KULLANICILARDA olsun.
+//      Eski sürümde kalan tek bir cihaz yine bomboş liste görür.
+//   3. Bu dosyada aşağıdaki [GERİ AÇ] işaretli üç yeri değiştirip yayınlayın.
+//   4. Yönetici OLMAYAN bir hesapla doğrulayın: bugünün etkinliği görünüyor,
+//      geçmiş etkinlik görünmüyor.
 //
-// v1.4 DEĞİŞİKLİKLERİ (bunun dışındaki her blok AYNEN korunmuştur):
+// Ayrıntılı gerekçe: Firebase/GECIS-RUNBOOK.md
 //
-//   1. isAdmin() artık koda gömülü e-posta listesi yerine `admin_users`
-//      koleksiyonunu okur. Yeni yönetici eklemek için App Store / Play Store
-//      güncellemesi gerekmez; Console'dan doküman eklemek yeterlidir.
-//      Fonksiyonun ADI ve çağrıldığı yerler değişmedi — events, guests,
-//      guests_secure ve authorized_devices blokları aynen çalışmaya devam eder.
+// ---------------------------------------------------------------------------
+// v1.4'TEN DEVREDEN DAVRANIŞ (değişmedi)
+// ---------------------------------------------------------------------------
+//   * isAdmin() koda gömülü liste yerine `admin_users` koleksiyonunu okur.
+//     Yönetici eklemek için mağaza güncellemesi gerekmez.
+//   * device_bindings: bir e-posta yalnızca tek cihaza bağlanır.
+//   * admin_users: istemci ASLA yazamaz.
 //
-//   2. device_bindings koleksiyonu eklendi: bir e-posta yalnızca tek bir cihaza
-//      bağlanabilir. Bağı yalnızca sahip (Console) silebilir.
+// DİKKAT: her yönetici e-postası için admin_users/<küçük-harfli-eposta>
+// dokümanı { isAdmin: true } ile mevcut OLMALIDIR. Yoksa yönetici cihazlar
+// authorized_devices'a yazamaz ve yönetici işlevleri kilitlenir.
 //
-//   3. admin_users koleksiyonu eklendi: istemci ASLA yazamaz.
-//
-// DİKKAT — YAYIN SIRASI: Bu dosyayı yayınlamadan ÖNCE her yönetici e-postası
-// için admin_users/<küçük-harfli-eposta> dokümanını { isAdmin: true } ile
-// oluşturun. Aksi halde yönetici cihazlar (iOS VE ANDROID) authorized_devices'a
-// yazamaz, kaydolamaz ve yönetici işlevleri kilitlenir.
-//
-// BU DOSYA TEK SÜRÜMLÜ KOPYADIR.
-//
-// Not: GuestsBackend/firebase.json içinde `firestore.rules` tanımlı DEĞİLDİR
-// (yalnızca indexes ve functions var), dolayısıyla
-// `firebase deploy --only firestore:rules` oradan çalışmaz. Diskte başka bir
-// firestore.rules dosyası da yoktur — sürüm kontrolündeki tek kopya budur.
-//
-// YAYINLAMA: İçeriği Firebase Console → Firestore Database → Rules sekmesine
-// yapıştırıp Publish edin. Değişiklikten sonra bu dosyayı da güncel tutun ki
-// depo ile canlı kurallar ayrışmasın.
+// Deploy: firebase deploy --only firestore:rules
 // ============================================================================
 
 rules_version = '2';
@@ -74,12 +74,7 @@ service cloud.firestore {
       return request.auth.token.get('email', '').lower();
     }
 
-    // v1.4: Yönetici listesi artık `admin_users` koleksiyonundadır.
-    //
-    // ÖNCEDEN: burada sabit bir e-posta dizisi vardı ve Android'deki
-    // AppConstants.kt ADMIN_EMAILS ile elle senkron tutulması gerekiyordu.
-    // Yönetici değiştirmek her iki platformda da yeni sürüm demekti.
-    //
+    // Yönetici listesi `admin_users` koleksiyonundadır.
     // Yönetici eklemek : admin_users/<eposta> dokümanı, alan isAdmin = true
     // Yönetici çıkarmak: dokümanı sil veya isAdmin = false yap
     function isAdmin() {
@@ -89,7 +84,11 @@ service cloud.firestore {
                .data.get('isAdmin', false) == true;
     }
 
-    // ---- v1.6: Geçmiş etkinlik görünürlüğü ------------------------------------
+    // ---- Geçmiş etkinlik görünürlüğü (şu an KULLANILMIYOR — bkz. [GERİ AÇ]) ---
+    //
+    // Fonksiyonlar bilerek duruyor: kısıt geri açılırken tek yapılacak iş
+    // aşağıdaki üç [GERİ AÇ] bloğundaki okuma satırlarını değiştirmektir.
+    // Kullanılmayan fonksiyon Firestore tarafında hata değildir.
 
     // Bir zaman damgasından sıralanabilir gün anahtarı: 2026-08-31 -> 20260831.
     function dayKeyOf(t) {
@@ -111,12 +110,6 @@ service cloud.firestore {
       return dayKeyOf(request.time + duration.value(3, 'h') - duration.value(24, 'h'));
     }
 
-    // Etkinlik bu cihaza görünür mü? Ucuz olan alan karşılaştırması önce denenir;
-    // isAdmin() yalnızca geçmiş etkinliklerde çalışır (doküman okuması maliyetlidir).
-    function eventVisible(eventData) {
-      return eventData.get('eventDayKey', 0) >= minVisibleDayKey() || isAdmin();
-    }
-
     // Misafir kayıtları için üst etkinliğin görünürlüğü.
     //
     // isAdmin() BİLEREK önce çağrılır: üst etkinlik dokümanı (yarım kalmış bir silme
@@ -129,8 +122,8 @@ service cloud.firestore {
     }
 
     // Gün anahtarı bir kez yazıldıktan sonra yalnızca yönetici değiştirebilir.
-    // Alan hiç yoksa (v1.6 öncesi kalıntı doküman) ilk yazıma izin verilir; böylece
-    // geri doldurmayı kaçırmış bir kayıt istemci tarafından onarılabilir.
+    // Alan hiç yoksa ilk yazıma izin verilir; böylece geri doldurmayı kaçırmış bir
+    // kayıt istemci tarafından onarılabilir.
     function dayKeyUnchangedOrAdmin() {
       return isAdmin()
           || !('eventDayKey' in resource.data)
@@ -145,22 +138,21 @@ service cloud.firestore {
     }
 
     // ==========================================================================
-    // ADMIN USERS - Yönetici E-posta Listesi   [v1.4 YENİ]
+    // ADMIN USERS - Yönetici E-posta Listesi
     // ==========================================================================
     // Doküman ID'si = küçük harfli e-posta, alan: isAdmin (boolean).
     // İstemci ASLA yazamaz — yalnızca Console / Admin SDK.
     //
-    // Okuma yalnızca kişinin KENDİ kaydıyla sınırlıdır (kimse başkasının
-    // yönetici olup olmadığını göremez). Yukarıdaki isAdmin() fonksiyonunun
-    // içindeki get()/exists() çağrıları kuralları atladığı için bu kısıt
-    // isAdmin()'i etkilemez.
+    // Okuma yalnızca kişinin KENDİ kaydıyla sınırlıdır (kimse başkasının yönetici
+    // olup olmadığını göremez). isAdmin() içindeki get()/exists() çağrıları
+    // kuralları atladığı için bu kısıt isAdmin()'i etkilemez.
     match /admin_users/{emailId} {
       allow read: if signedIn() && emailId == normEmail();
       allow write: if false;
     }
 
     // ==========================================================================
-    // DEVICE BINDINGS - E-posta ↔ Cihaz Bağı   [v1.4 YENİ]
+    // DEVICE BINDINGS - E-posta ↔ Cihaz Bağı
     // ==========================================================================
     // Bir e-posta = bir cihaz. Doküman ID'si küçük harfli e-postadır, böylece
     // sahip Console'da dokümanı e-posta ile bulup silerek bağı sıfırlayabilir.
@@ -174,9 +166,7 @@ service cloud.firestore {
         && request.resource.data.email == emailId
         && request.resource.data.uid == request.auth.uid
         && request.resource.data.deviceId is string
-        && request.resource.data.deviceId.size() > 0
-        // Muafiyet bayrağını istemci AÇAMAZ — yalnızca Console.
-        && request.resource.data.get('allowMultipleDevices', false) == false;
+        && request.resource.data.deviceId.size() > 0;
 
       // deviceId DEĞİŞTİRİLEMEZ — özelliğin bel kemiği budur.
       // Pratikte yalnızca lastSeenAt güncellenebilir.
@@ -185,19 +175,10 @@ service cloud.firestore {
         && request.resource.data.deviceId == resource.data.deviceId
         && request.resource.data.uid == resource.data.uid
         && request.resource.data.email == resource.data.email
-        && request.resource.data.boundAt == resource.data.boundAt
-        // Muafiyet bayrağı istemci tarafından DEĞİŞTİRİLEMEZ.
-        && request.resource.data.get('allowMultipleDevices', false)
-           == resource.data.get('allowMultipleDevices', false);
+        && request.resource.data.boundAt == resource.data.boundAt;
 
       // Bağı YALNIZCA sahip (Console) sıfırlayabilir.
       allow delete: if false;
-
-      // MUAFİYET (allowMultipleDevices: true)
-      // Bu alanı true yapılan hesap cihaz kısıtından muaf olur; birden fazla
-      // cihazdan giriş yapabilir. Kullanım amacı App Store inceleme demo
-      // hesabıdır (incelemeci hem iPhone hem iPad'de test edebilsin).
-      // Yalnızca Console'dan açılıp kapatılır; onay sonrası KAPATIN.
     }
 
     // ==========================================================================
@@ -205,7 +186,6 @@ service cloud.firestore {
     // ==========================================================================
     // Herkes cihaz kaydını okuyabilir ve kendi kaydını yazabilir; ancak
     // isAdmin=true yalnızca admin_users'da kayıtlı bir hesapla açılabilir.
-    // (Blok değişmedi; yalnızca isAdmin()'in kaynağı değişti.)
     match /authorized_devices/{deviceId} {
       allow read: if signedIn();
       allow write: if signedIn()
@@ -213,52 +193,69 @@ service cloud.firestore {
     }
 
     // ==========================================================================
-    // EVENTS - Etkinlik Yönetimi
+    // EVENTS - Etkinlik Yönetimi                                      [GERİ AÇ 1]
     // ==========================================================================
-    // Oluşturma ve güncelleme herkese açık; SİLME yalnızca yöneticiye.
-    // v1.6: OKUMA artık gün anahtarına bağlıdır — yönetici olmayan cihaz yalnızca
-    // bugünü ve gelecekteki etkinlikleri görür. İstemci sorgusu da aynı sınırla
-    // daraltılmak ZORUNDADIR:
-    //     .whereField("eventDayKey", isGreaterThanOrEqualTo: <bugün>)
-    // Daraltılmamış sorgu, geçmiş tek bir kayıt yüzünden TAMAMEN reddedilir.
+    // v1.6.1: okuma kısıtı GEÇİCİ olarak kaldırıldı; create'teki `eventDayKey is
+    // int` şartı da kaldırıldı — o şart, alanı yazmayan eski uygulama sürümlerinin
+    // etkinlik OLUŞTURMASINI da engelliyordu.
     //
-    // create: eventDayKey zorunlu — yazılmayan etkinlik yönetici olmayan hiçbir
-    // cihazda görünmez (sessiz kayıp yerine gürültülü ret tercih edildi).
+    // [GERİ AÇ] Geri doldurma bitip her iki istemci yayınlandığında aşağıdaki
+    // `allow read` ve `allow create` satırlarını silip yerine şunları koyun:
+    //
+    //   allow get:  if signedIn()
+    //               && (isAdmin()
+    //                   || resource.data.get('eventDayKey', 99999999) >= minVisibleDayKey());
+    //   allow list: if signedIn()
+    //               && (isAdmin() || resource.data.eventDayKey >= minVisibleDayKey());
+    //   allow create: if signedIn() && request.resource.data.eventDayKey is int;
+    //   allow update: if signedIn()
+    //                 && (!marksDeleted() || isAdmin())
+    //                 && dayKeyUnchangedOrAdmin();
+    //
+    // `get` ile `list` AYRI yazılmalıdır ve bu zorunludur: liste sorgusunda koşul,
+    // sorgunun kendi filtresinden KANITLANABİLİR olmak zorundadır. Varsayılanlı
+    // biçim (`resource.data.get('eventDayKey', 0)`) kanıtlanamaz; Firestore bunu
+    // değerlendirme hatası sayar ve DARALTILMIŞ sorguyu bile reddeder. Tek parça
+    // `allow read` yazılırsa arıza aynen geri gelir. Tekil belge okumasında
+    // (`get`) böyle bir kısıt yoktur; orada eksik alanı görünür sayan hoşgörülü
+    // biçim, geri doldurma tamamlanmadan detay ekranlarının kırılmasını önler.
     match /events/{eventId} {
-      allow read: if signedIn() && eventVisible(resource.data);
-      allow create: if signedIn() && request.resource.data.eventDayKey is int;
-      allow update: if signedIn()
-                    && (!marksDeleted() || isAdmin())
-                    && dayKeyUnchangedOrAdmin();
-      allow delete: if isAdmin();
-    }
-
-    // ==========================================================================
-    // GUESTS - Genel Misafir Listesi (Public)
-    // ==========================================================================
-    // Giriş/çıkış, saat düzeltme, ünvan güncelleme vb. herkese açık.
-    // SİLME yalnızca yöneticiye.
-    // v1.6: Okuma üst etkinliğin görünürlüğüne bağlandı — etkinlik listede
-    // gizliyken misafirleri doğrudan yol ile okunabiliyordu.
-    // YAZMA bilinçli olarak DEĞİŞTİRİLMEDİ: geçmiş etkinlikte değişikliği zaten
-    // istemci engelliyor; buraya da koşul eklemek, gün anahtarı eksik kalmış tek bir
-    // kayıtta tüm giriş/çıkış işlemlerini kilitleme riskini getirirdi.
-    match /events/{eventId}/guests/{guestId} {
-      allow read: if signedIn() && parentEventVisible(eventId);
+      allow read: if signedIn();
       allow create: if signedIn();
       allow update: if signedIn() && (!marksDeleted() || isAdmin());
       allow delete: if isAdmin();
     }
 
     // ==========================================================================
-    // GUESTS_SECURE - Kırmızı Liste Misafirleri
+    // GUESTS - Genel Misafir Listesi (Public)                         [GERİ AÇ 2]
+    // ==========================================================================
+    // Giriş/çıkış, saat düzeltme, ünvan güncelleme vb. herkese açık.
+    // SİLME yalnızca yöneticiye.
+    //
+    // [GERİ AÇ] `allow read` yerine:
+    //   allow read: if signedIn() && parentEventVisible(eventId);
+    //
+    // YAZMA bilinçli olarak kısıtlanmaz: geçmiş etkinlikte değişikliği zaten
+    // istemci engelliyor; buraya koşul eklemek, gün anahtarı eksik kalmış tek bir
+    // kayıtta tüm giriş/çıkış işlemlerini kilitleme riskini getirirdi.
+    match /events/{eventId}/guests/{guestId} {
+      allow read: if signedIn();
+      allow create: if signedIn();
+      allow update: if signedIn() && (!marksDeleted() || isAdmin());
+      allow delete: if isAdmin();
+    }
+
+    // ==========================================================================
+    // GUESTS_SECURE - Kırmızı Liste Misafirleri                       [GERİ AÇ 3]
     // ==========================================================================
     // Onay bekleyen kayıtlar. /guests ile AYNI silme modeli uygulanır:
     // oluşturma ve normal güncelleme herkese açık (misafir ekleyen görevlinin
     // kırmızı listeye takılan kaydı buraya düşer), silme yalnızca yöneticiye.
-    // v1.6: /guests ile aynı gerekçeyle okuma üst etkinliğe bağlandı.
+    //
+    // [GERİ AÇ] `allow read` yerine:
+    //   allow read: if signedIn() && parentEventVisible(eventId);
     match /events/{eventId}/guests_secure/{guestId} {
-      allow read: if signedIn() && parentEventVisible(eventId);
+      allow read: if signedIn();
       allow create: if signedIn();
       allow update: if signedIn() && (!marksDeleted() || isAdmin());
       allow delete: if isAdmin();
@@ -292,7 +289,7 @@ service cloud.firestore {
     // ==========================================================================
     // ADMINS - Admin Kullanıcılar (eski/kullanılmıyor)
     // ==========================================================================
-    // NOT: Bu koleksiyon v1.4'ün admin_users'ı ile KARIŞTIRILMAMALIDIR.
+    // NOT: Bu koleksiyon admin_users ile KARIŞTIRILMAMALIDIR.
     // Yetki kaynağı admin_users'tır; burası eski bir kalıntıdır.
     match /admins/{userId} {
       allow read: if signedIn();
