@@ -234,7 +234,20 @@ jobs:
           echo "ipa-path=$IPA_PATH" >> "$GITHUB_OUTPUT"
           echo "Packaged IPA: $IPA_PATH"
 
+      # NEDEN continue-on-error: bu action, IPA'yi yukledikten SONRA build'in App
+      # Store Connect'te gorunur olmasini 12 dakikaya kadar bekler (60+120+240+300
+      # saniye). App Store Connect API'sinin bearer token'i en fazla 20 dakika
+      # gecerlidir; yukleme uzun surdugunde token bu bekleme sirasinda sona erer ve
+      # sorgulama "401 NOT_AUTHORIZED" doner. Yukleme O NOKTADA COKTAN BITMISTIR
+      # ("Finished uploading build chunks" / "Marked build upload as complete");
+      # yalnizca dogrulama yapilamaz. Isi bu yuzden kirmiziya dusurmuyoruz.
+      #
+      # BEDELI: gercek bir yukleme hatasi da isi kirmiziya dusurmez. Bu yuzden
+      # asagidaki adim her kosulda sonucu yazar — build'i App Store Connect'ten
+      # gozle dogrulayin.
       - name: Upload to App Store Connect
+        id: upload
+        continue-on-error: true
         uses: Apple-Actions/upload-testflight-build@v5
         with:
           app-path: ${{ steps.export.outputs.ipa-path }}
@@ -242,8 +255,16 @@ jobs:
           api-key-id: ${{ secrets.ASC_KEY_ID }}
           api-private-key: ${{ secrets.ASC_PRIVATE_KEY }}
 
+      - name: Yukleme sonucunu bildir
+        run: |
+          if [ "${{ steps.upload.outcome }}" = "success" ]; then
+            echo "::notice::Yukleme tamamlandi ve App Store Connect tarafindan dogrulandi."
+          else
+            echo "::warning::Yukleme adimi hata dondu. Bu cogunlukla token suresi dolmus DOGRULAMA hatasidir ve IPA yuklenmis olur. App Store Connect > TestFlight > iOS Builds ekranindan build'i kontrol edin; gorunmuyorsa asagidaki gunlukleri inceleyin."
+          fi
+
       - name: Upload build logs on failure
-        if: failure()
+        if: failure() || steps.upload.outcome == 'failure'
         uses: actions/upload-artifact@v4
         with:
           name: xcodebuild-logs
