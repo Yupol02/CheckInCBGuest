@@ -803,7 +803,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = "CheckingCBGuestsİos/CheckingCBGuestsI_os.entitlements";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 160;
+				CURRENT_PROJECT_VERSION = 170;
 				DEVELOPMENT_ASSET_PATHS = "\"CheckingCBGuestsİos/Preview Content\"";
 				DEVELOPMENT_TEAM = 46W827A36A;
 				ENABLE_PREVIEWS = YES;
@@ -820,7 +820,7 @@
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				IPHONEOS_DEPLOYMENT_TARGET = 17.2;
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
-				MARKETING_VERSION = 1.6;
+				MARKETING_VERSION = 1.7;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.checkingcbguests.CheckingCBGuestsI-os";
 				PRODUCT_MODULE_NAME = CheckingCBGuestsIos;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -839,7 +839,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = "CheckingCBGuestsİos/CheckingCBGuestsI_os.entitlements";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 160;
+				CURRENT_PROJECT_VERSION = 170;
 				DEVELOPMENT_ASSET_PATHS = "\"CheckingCBGuestsİos/Preview Content\"";
 				DEVELOPMENT_TEAM = 46W827A36A;
 				ENABLE_PREVIEWS = YES;
@@ -856,7 +856,7 @@
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				IPHONEOS_DEPLOYMENT_TARGET = 17.2;
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
-				MARKETING_VERSION = 1.6;
+				MARKETING_VERSION = 1.7;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.checkingcbguests.CheckingCBGuestsI-os";
 				PRODUCT_MODULE_NAME = CheckingCBGuestsIos;
 				PRODUCT_NAME = "$(TARGET_NAME)";
