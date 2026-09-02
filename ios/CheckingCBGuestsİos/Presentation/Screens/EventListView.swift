@@ -12,6 +12,10 @@ struct EventListView: View {
     @State private var showAddEvent = false
     @State private var showLogoutConfirm = false
     @State private var showDeleteConfirm = false
+    /// Uzun basılan etkinlik — "Düzenle / Seç" menüsünü açar.
+    @State private var longPressedEvent: Event?
+    /// Düzenleme sayfası açık olan etkinlik.
+    @State private var editingEvent: Event?
     @State private var toast: ToastMessage?
 
     private var filteredEvents: [Event] {
@@ -57,6 +61,35 @@ struct EventListView: View {
         .toolbar { toolbarContent }
         .sheet(isPresented: $showAddEvent) {
             AddEventView()
+        }
+        .sheet(item: $editingEvent) { event in
+            EditEventView(event: event)
+        }
+        .confirmationDialog(
+            longPressedEvent?.title ?? "Etkinlik",
+            isPresented: Binding(
+                get: { longPressedEvent != nil },
+                set: { if !$0 { longPressedEvent = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            // Uzun basma eskiden DOĞRUDAN seçim moduna giriyordu ve seçim modunun tek
+            // işlevi silmekti. Düzenleme eklenince aynı jest iki işe bakmak zorunda
+            // kaldı; menü, silme akışını bozmadan ikisini yan yana koyar.
+            if let event = longPressedEvent {
+                if eventVM.canEditEvent(event) {
+                    Button("Düzenle") {
+                        longPressedEvent = nil
+                        editingEvent = event
+                    }
+                }
+                Button("Seç") {
+                    longPressedEvent = nil
+                    eventVM.toggleEventSelectionMode()
+                    eventVM.toggleEventSelection(id: event.id)
+                }
+            }
+            Button("İptal", role: .cancel) { longPressedEvent = nil }
         }
         .confirmationDialog("Çıkış yapmak istiyor musunuz?", isPresented: $showLogoutConfirm, titleVisibility: .visible) {
             Button("Çıkış Yap", role: .destructive) {
@@ -199,10 +232,10 @@ struct EventListView: View {
             EventCard(event: event)
                 .rowTapAndLongPress(
                     onTap: { navigationPath?.push(.eventDetail(event: event, highlightGuestId: nil)) },
-                    onLongPress: eventDeleteAction == nil ? nil : {
-                        eventVM.toggleEventSelectionMode()
-                        eventVM.toggleEventSelection(id: event.id)
-                    }
+                    // Uzun basma artık doğrudan seçim moduna girmez, MENÜ açar:
+                    // "Düzenle" ve "Seç". Hem düzenleme hem silme yöneticiye özel
+                    // olduğu için jest yetkisiz cihazda hiç bağlanmaz.
+                    onLongPress: eventVM.isAdminDevice ? { longPressedEvent = event } : nil
                 )
         }
     }

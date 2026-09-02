@@ -162,6 +162,7 @@ final class EventViewModel {
     deinit {
         observationTasks.cancelAll()
         eventObservationTasks.cancelAll()
+        StreamErrorReporter.shared.setHandler(nil)
     }
 
     // MARK: - Computed
@@ -577,6 +578,50 @@ final class EventViewModel {
         uiEvent = .showSuccess("Etkinlik silindi")
     }
 
+    /// Etkinlik bilgilerini günceller — YALNIZCA yönetici.
+    ///
+    /// Kısıt hem burada hem arayüzde uygulanır: liste ekranındaki menü yönetici
+    /// olmayan cihazda hiç açılmaz, ama ekran dışından çağrılma ihtimaline karşı
+    /// kapı burada da kapalıdır.
+    ///
+    /// `date` değişirse `eventDayKey` de değişir; anahtarı `Event.dayKey` üretir ve
+    /// depo katmanı yazar — burada ayrıca bir şey yapmak gerekmez.
+    func updateEvent(_ event: Event) async {
+        guard isAdminDevice else {
+            uiEvent = .showError("Etkinliği yalnızca yönetici düzenleyebilir.")
+            return
+        }
+        // Geçmiş etkinlik kilitlidir. Düzenleme ekranı geçmiş tarih seçtirmez, bu yüzden
+        // buraya normalde düşülmez; kilit yine de sunucuya gitmeden önce doğrulanır.
+        if isEventPast(event) {
+            uiEvent = .showError("Geçmiş etkinlikte değişiklik yapılamaz.")
+            return
+        }
+
+        isLoading = true
+        defer { isLoading = false }
+
+        let formatted = Event(
+            id: event.id,
+            title: formatTurkishUpper(event.title),
+            date: event.date,
+            location: event.location,
+            startTime: event.startTime,
+            status: event.status,
+            deletedAt: event.deletedAt,
+            participatedCount: event.participatedCount,
+            totalGuestCount: event.totalGuestCount
+        )
+        await eventRepository.updateEvent(formatted)
+        await syncAfterOperation()
+        uiEvent = .showSuccess("Etkinlik güncellendi")
+    }
+
+    /// Etkinlik düzenlenebilir mi? Liste ekranındaki uzun basma menüsü bunu sorar.
+    func canEditEvent(_ event: Event) -> Bool {
+        isAdminDevice && !isEventPast(event)
+    }
+
     func deleteGuest(guestId: String, eventId: String? = nil, currentEvent: Event? = nil) async {
         if isEventPast(currentEvent) {
             uiEvent = .showError("Geçmiş etkinlikte değişiklik yapılamaz.")
@@ -898,7 +943,26 @@ final class EventViewModel {
 
     // MARK: - Observation
 
+    /// Depo katmanındaki dinleyici hatalarını arayüze bağlar.
+    ///
+    /// Firestore dinleyicileri `AsyncStream<[Event]>` üzerinden akıyor ve bu akışın bir
+    /// HATA KANALI YOK. Eskiden hata sessizce boş listeye çevriliyordu; kullanıcı
+    /// "hiç etkinlik yok" görüyordu ve yetki sorunu fark edilmiyordu. Artık hata
+    /// buradan `uiEvent` ile ekrana çıkar.
+    private func bindStreamErrors() {
+        StreamErrorReporter.shared.setHandler { [weak self] message in
+            // `self?` doğrudan Task içinde kullanılamaz (yakalanan zayıf değişkene
+            // eşzamanlı erişim); güçlü bir sabite alınıp öyle geçiliyor.
+            guard let viewModel = self else { return }
+            Task { @MainActor in
+                viewModel.uiEvent = .showError(message)
+            }
+        }
+    }
+
     private func startObservationTasks() {
+        bindStreamErrors()
+
         startEventObservationTasks()
 
         observationTasks.add(Task { @MainActor [weak self] in

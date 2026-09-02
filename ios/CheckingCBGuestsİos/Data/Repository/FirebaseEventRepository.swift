@@ -66,14 +66,21 @@ final class FirebaseEventRepository: EventRepository, @unchecked Sendable {
     func allEvents() -> AsyncStream<[Event]> {
         let firestore = firestore
         return AsyncStream { continuation in
+            let firstEmit = FirstEmitFlag()
             let registration = Self.scopedEventsQuery(firestore: firestore).addSnapshotListener { snapshot, error in
                 if let error {
                     Self.logger.error("Events listener error: \(error.localizedDescription, privacy: .public)")
-                    continuation.yield([])
+                    // Yetki hatası ARTIK SESSİZ DEĞİL. Eskiden burada boş liste yayınlanıyordu
+                    // ve kullanıcı "hiç etkinlik yok" görüyordu; v1.6 görünürlük arızasının
+                    // günlerce fark edilmemesinin sebebi buydu.
+                    StreamErrorReporter.shared.report(streamErrorMessage(error))
+                    // Hata ekrandaki listeyi SİLMEZ; yalnızca hiç veri yayınlanmadıysa
+                    // bir kez boş yayınlanır ki açılış göstergesi takılı kalmasın.
+                    if firstEmit.claim() { continuation.yield([]) }
                     return
                 }
                 guard let snapshot else {
-                    continuation.yield([])
+                    if firstEmit.claim() { continuation.yield([]) }
                     return
                 }
 
@@ -93,6 +100,7 @@ final class FirebaseEventRepository: EventRepository, @unchecked Sendable {
                 }
                 .sorted { $0.date > $1.date }
 
+                _ = firstEmit.claim()
                 continuation.yield(events)
             }
 
@@ -107,17 +115,24 @@ final class FirebaseEventRepository: EventRepository, @unchecked Sendable {
         return AsyncStream { continuation in
             let coordinator = GuestStreamCoordinator()
 
+            let firstEmit = FirstEmitFlag()
+
             func emitMerged() {
+                _ = firstEmit.claim()
                 continuation.yield(coordinator.mergedGuests())
             }
 
             let eventsRegistration = Self.scopedEventsQuery(firestore: firestore).addSnapshotListener { snapshot, error in
-                if error != nil {
-                    continuation.yield([])
+                if let error {
+                    Self.logger.error("Guests event listener error: \(error.localizedDescription, privacy: .public)")
+                    StreamErrorReporter.shared.report(streamErrorMessage(error))
+                    // Hata ekrandaki listeyi SİLMEZ; yalnızca hiç veri yayınlanmadıysa
+                    // bir kez boş yayınlanır ki açılış göstergesi takılı kalmasın.
+                    if firstEmit.claim() { continuation.yield([]) }
                     return
                 }
                 guard let snapshot else {
-                    continuation.yield([])
+                    if firstEmit.claim() { continuation.yield([]) }
                     return
                 }
 
@@ -957,4 +972,39 @@ private extension Array {
         }
         return result
     }
+}
+
+// MARK: - Dinleyici yardımcıları
+
+/// Akışın ilk yayınını bir kereye indirger.
+///
+/// Hata anında listeyi silmemek için gerekir: dinleyici hata aldığında ekrandaki son
+/// iyi veri korunur, yalnızca HİÇ veri yayınlanmamışsa bir kez boş yayınlanır — aksi
+/// hâlde `isBootstrapping` göstergesi sonsuza dek dönerdi.
+private final class FirstEmitFlag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var claimed = false
+
+    /// İlk çağrıda `true`, sonrakilerde `false` döner.
+    func claim() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        if claimed { return false }
+        claimed = true
+        return true
+    }
+}
+
+/// Dinleyici hatasını kullanıcıya gösterilecek Türkçe metne çevirir.
+///
+/// `permission-denied` ayrı ele alınır: sorgu kuralın izin verdiğinden geniş kalırsa
+/// Firestore belge elemez, TÜM sorguyu reddeder. Bu durumda kullanıcıya "kayıt yok"
+/// demek yanlıştır — kayıt vardır, okunamamıştır.
+private func streamErrorMessage(_ error: Error) -> String {
+    let nsError = error as NSError
+    if nsError.domain == FirestoreErrorDomain,
+       nsError.code == FirestoreErrorCode.permissionDenied.rawValue {
+        return "Etkinlikler okunamadı: sunucu izin vermedi. Uygulamayı güncelleyin; sorun sürerse yöneticiye bildirin."
+    }
+    return "Etkinlikler güncellenemedi: \(error.localizedDescription)"
 }
