@@ -16,20 +16,22 @@
 //   * Ancak Firestore'daki `events` dokümanlarında `eventDayKey` alanı HİÇ YOKTU
 //     (geri doldurma betiği çalıştırılmamıştı).
 //   * Bir aralık sorgusu, o alanı taşımayan belgeyi hiç döndürmez. Alan hiçbir
-//     belgede olmayınca sonuç kümesi TAMAMEN boşaldı.
-//   * Üstelik cihazlardaki uygulama sürümleri sorguyu henüz daraltmıyordu;
-//     daraltılmamış sorgu ise belge elemek yerine `permission-denied` alır ve
-//     istemci bunu boş liste olarak gösterir.
+//     belgede olmayınca sonuç kümesi TAMAMEN boşaldı. Kuralları gevşetmek bunu
+//     TEK BAŞINA çözmez: güncel istemci sorguyu kendisi daralttığı için sonuç
+//     yine boş kalır.
+//   * Üstelik cihazlardaki eski sürümler sorguyu daraltmıyordu; daraltılmamış
+//     sorgu ise belge elemek yerine `permission-denied` alır ve istemci bunu
+//     boş liste olarak gösterir.
 //
 // Bu dosya arızayı DURDURUR: okuma kısıtı geçici olarak kaldırılmıştır. Kısıtı
-// üreten yardımcı fonksiyonlar (minVisibleDayKey / eventVisible /
-// parentEventVisible) BİLEREK dosyada bırakıldı; geri açmak üç satırlık iştir.
+// üreten yardımcı fonksiyonlar (minVisibleDayKey / parentEventVisible /
+// dayKeyUnchangedOrAdmin) BİLEREK dosyada bırakıldı; geri açmak üç satırlık iştir.
 //
 // ---------------------------------------------------------------------------
 // KISITI GERİ AÇMA SIRASI — hepsi bitmeden yayınlamayın
 // ---------------------------------------------------------------------------
-//   1. Geri doldurma: `node Firebase/scripts/backfill-event-day-key.js --apply`
-//      Betiği tekrar çalıştırıp `eksik : 0` gördüğünüzde bu adım biter.
+//   1. `events` dokümanlarının HEPSİNDE `eventDayKey` dolu olmalı.
+//      Doğrulama: `node Firebase/scripts/backfill-event-day-key.js` -> eksik: 0
 //   2. iOS VE ANDROID'in daraltılmış sorgulu sürümleri KULLANICILARDA olsun.
 //      Eski sürümde kalan tek bir cihaz yine bomboş liste görür.
 //   3. Bu dosyada aşağıdaki [GERİ AÇ] işaretli üç yeri değiştirip yayınlayın.
@@ -43,14 +45,24 @@
 // ---------------------------------------------------------------------------
 //   * isAdmin() koda gömülü liste yerine `admin_users` koleksiyonunu okur.
 //     Yönetici eklemek için mağaza güncellemesi gerekmez.
-//   * device_bindings: bir e-posta yalnızca tek cihaza bağlanır.
+//   * device_bindings: bir e-posta yalnızca tek cihaza bağlanır. Tek istisna,
+//     yalnızca Console'dan açılabilen `allowMultipleDevices` muafiyetidir.
 //   * admin_users: istemci ASLA yazamaz.
 //
 // DİKKAT: her yönetici e-postası için admin_users/<küçük-harfli-eposta>
 // dokümanı { isAdmin: true } ile mevcut OLMALIDIR. Yoksa yönetici cihazlar
 // authorized_devices'a yazamaz ve yönetici işlevleri kilitlenir.
 //
-// Deploy: firebase deploy --only firestore:rules
+// BU DOSYA TEK SÜRÜMLÜ KOPYADIR.
+//
+// Not: GuestsBackend/firebase.json içinde `firestore.rules` tanımlı DEĞİLDİR
+// (yalnızca indexes ve functions var), dolayısıyla
+// `firebase deploy --only firestore:rules` oradan çalışmaz. Diskte başka bir
+// firestore.rules dosyası da yoktur — sürüm kontrolündeki tek kopya budur.
+//
+// YAYINLAMA: İçeriği Firebase Console → Firestore Database → Rules sekmesine
+// yapıştırıp Publish edin. Değişiklikten sonra bu dosyayı da güncel tutun ki
+// depo ile canlı kurallar ayrışmasın.
 // ============================================================================
 
 rules_version = '2';
@@ -166,7 +178,9 @@ service cloud.firestore {
         && request.resource.data.email == emailId
         && request.resource.data.uid == request.auth.uid
         && request.resource.data.deviceId is string
-        && request.resource.data.deviceId.size() > 0;
+        && request.resource.data.deviceId.size() > 0
+        // Muafiyet bayrağını istemci AÇAMAZ — yalnızca Console.
+        && request.resource.data.get('allowMultipleDevices', false) == false;
 
       // deviceId DEĞİŞTİRİLEMEZ — özelliğin bel kemiği budur.
       // Pratikte yalnızca lastSeenAt güncellenebilir.
@@ -175,7 +189,16 @@ service cloud.firestore {
         && request.resource.data.deviceId == resource.data.deviceId
         && request.resource.data.uid == resource.data.uid
         && request.resource.data.email == resource.data.email
-        && request.resource.data.boundAt == resource.data.boundAt;
+        && request.resource.data.boundAt == resource.data.boundAt
+        // Muafiyet bayrağı istemci tarafından DEĞİŞTİRİLEMEZ.
+        && request.resource.data.get('allowMultipleDevices', false)
+           == resource.data.get('allowMultipleDevices', false);
+
+      // MUAFİYET (allowMultipleDevices: true)
+      // Bu alanı true yapılan hesap cihaz kısıtından muaf olur; birden fazla
+      // cihazdan giriş yapabilir. Kullanım amacı App Store inceleme demo
+      // hesabıdır (incelemeci hem iPhone hem iPad'de test edebilsin).
+      // Yalnızca Console'dan açılıp kapatılır; onay sonrası KAPATIN.
 
       // Bağı YALNIZCA sahip (Console) sıfırlayabilir.
       allow delete: if false;
